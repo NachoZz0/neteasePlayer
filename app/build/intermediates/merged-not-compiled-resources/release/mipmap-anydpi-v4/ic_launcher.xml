@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API 24/25 没有自适应图标（adaptive-icon 需要 v26），
+  因此为它们提供一份 mipmap 类型的 bitmap 别名兜底，
+  实际像素内容复用 drawable/ic_launcher_legacy.xml。
+  注意：别名文件本身必须位于 mipmap 目录下，且被指向的资源
+  类型也要是同一类型，否则 lint 的 ReferenceType 会报 fatal error。
+-->
+<resources>
+    <item name="ic_launcher" type="mipmap">@drawable/ic_launcher_legacy</item>
+</resources>

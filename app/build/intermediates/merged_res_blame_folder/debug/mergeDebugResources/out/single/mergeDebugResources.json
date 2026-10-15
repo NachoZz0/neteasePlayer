@@ -1,0 +1,58 @@
+[
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\xml_backup_rules.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\xml\\backup_rules.xml"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\drawable_app_bg.jpg.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\drawable\\app_bg.jpg"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\mipmap-anydpi-v26\\ic_launcher.xml"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\drawable_ic_launcher_foreground.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\drawable\\ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/drawable-nodpi_ic_launcher_art.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/drawable-nodpi/ic_launcher_art.png"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\drawable_ic_launcher_background.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\drawable\\ic_launcher_background.xml"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\drawable_ic_launcher_legacy.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\drawable\\ic_launcher_legacy.xml"
+    },
+    {
+        "merged": "com.example.metingmusic.app-debug-61:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.example.metingmusic.app-main-63:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-debug-61:\\mipmap-anydpi_ic_launcher.xml.flat",
+        "source": "C:\\Users\\zhb08\\.gradle\\daemon\\8.9\\com.example.metingmusic.app-main-63:\\mipmap-anydpi\\ic_launcher.xml"
+    }
+]

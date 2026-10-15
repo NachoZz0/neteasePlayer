@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.metingmusic.app-mergeDebugResources-59:/values-v24/values-v24.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\zhb08\\.gradle\\caches\\8.9\\transforms\\1d6b939f17ac2a42babb511ece500de5\\transformed\\media3-session-1.5.1\\res\\values-v24\\values-v24.xml",
+                    "from": {
+                        "startLines": "2,3,4,5",
+                        "startColumns": "4,4,4,4",
+                        "startOffsets": "55,121,182,248",
+                        "endColumns": "65,60,65,66",
+                        "endOffsets": "116,177,243,310"
+                    }
+                }
+            ]
+        }
+    ]
+}

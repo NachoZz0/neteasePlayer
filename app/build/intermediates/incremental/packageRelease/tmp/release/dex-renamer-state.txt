@@ -1,0 +1,4 @@
+#Thu Oct 15 23:13:40 CST 2026
+base.0=C\:\\Users\\zhb08\\WorkBuddy AI\\2026-10-14-18-36-09\\MetingMusicPlayer\\app\\build\\intermediates\\dex\\release\\minifyReleaseWithR8\\classes.dex
+renamed.0=classes.dex
+path.0=classes.dex

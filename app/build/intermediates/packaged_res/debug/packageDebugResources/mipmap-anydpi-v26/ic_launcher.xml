@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API 26+ 自适应图标。
+
+  前景用的 ic_launcher_art.png 是「108dp 画布、插画只占中间 66%」的预排版图片 ——
+  自适应图标的安全区只有中间 72dp，插画必须缩在里面，否则圆形遮罩会把边缘切掉。
+  预先把留白烘焙进图片，就不用在这里写 inset，也不会因为各厂商遮罩不同而跑偏。
+
+  没有声明 <monochrome>：主题化图标要求单色剪影，而这是一张彩色插画，
+  硬套 monochrome 会变成一团糊，不如交给系统用普通图标。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_art" />
+</adaptive-icon>
