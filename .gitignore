@@ -1,12 +1,38 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# ---- Gradle ----
+# `build/` 不带前导斜杠，会匹配任意层级的 build 目录，
+# 所以 app/build/ 也一并被忽略 —— 这正是之前漏掉的地方。
+#
+# 之前只写了 `/build`（只匹配根目录），导致 app/build/ 下 1715 个构建产物被提交进仓库；
+# 而 D8 生成的 dex 文件名带嵌套 lambda 名，路径超过 Windows 260 字符上限，
+# 于是 `git add` 直接报 "Filename too long" 失败。
+build/
+.gradle/
+.kotlin/
+
+# Gradle Wrapper 的 jar 必须提交，否则别人 clone 下来跑不起来
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- 本地配置 ----
+# 里面是本机的 Android SDK 路径，因机器而异，不能提交
 local.properties
+
+# ---- IDE ----
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+captures/
+.DS_Store
+Thumbs.db
+
+# ---- 签名文件 ----
+# 一旦泄露，任何人都能签出「同一个应用」的升级包
 *.keystore
 *.jks
+
+# ---- 构建产物 ----
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class

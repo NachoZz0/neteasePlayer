@@ -1,12 +1,10 @@
-# 拾音 · Android 音乐播放器
+# 音乐（Android 播放器）
 
 一个基于 [Meting API](https://api.qijieya.cn/meting/) 的 Android 音乐播放器，使用 **Kotlin + Jetpack Compose + Media3 (ExoPlayer)** 构建。
 
 支持搜索播放、导入网易云歌单、全屏歌词、后台播放等完整能力。
 
-> 名字取自录音行业的术语「拾音」（拾取声音）——
-> 把散落在各个歌单里的歌一首首拾起来听。当前版本 1.1.0，
-> 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 1.1.0，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

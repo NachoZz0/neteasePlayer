@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标的背景层。
+
+  颜色取自插画四角的平均色（#F5F4F1），和前景插画的边缘无缝衔接 ——
+  这样即使遮罩把前景裁掉一部分，露出来的也是同色底，不会出现突兀的色块边界。
+-->
+<resources>
+    <color name="ic_launcher_background">#F5F4F1</color>
+</resources>

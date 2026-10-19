@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      应用显示名（桌面图标下面的名字）。
+
+      ⚠️ 改这里只影响显示名；applicationId 不要跟着改，
+      否则签名不变也装不上（会被系统当成另一个应用）。
+    -->
+    <string name="app_name">音乐</string>
+</resources>
