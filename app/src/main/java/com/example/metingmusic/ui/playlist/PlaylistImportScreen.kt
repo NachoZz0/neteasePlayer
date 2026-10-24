@@ -65,6 +65,15 @@ import com.example.metingmusic.data.local.SavedPlaylist
 import com.example.metingmusic.ui.search.ImportedPlaylistUiState
 import com.example.metingmusic.ui.theme.clickableNoRipple
 import com.example.metingmusic.ui.theme.longPressableNoRipple
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.ui.unit.sp
+import com.example.metingmusic.data.model.DownloadLibrary
+import com.example.metingmusic.data.model.DownloadState
+import com.example.metingmusic.data.model.Song
+import androidx.compose.material.icons.filled.Add
+import com.example.metingmusic.ui.theme.glassCard
+import com.example.metingmusic.ui.theme.glassButtonColors
 
 /**
  * 网易云歌单导入页。
@@ -80,6 +89,8 @@ fun PlaylistImportScreen(
     onInputChange: (String) -> Unit,
     onNameChange: (String) -> Unit,
     onImport: () -> Unit,
+    /** 创建本地空歌单（只填名字）。 */
+    onCreatePlaylist: (String) -> Unit,
     onBack: () -> Unit,
     onPlaySong: (Int) -> Unit,
     onOpenSaved: (String) -> Unit,
@@ -88,6 +99,10 @@ fun PlaylistImportScreen(
     onRefresh: (String) -> Unit,
     onDownloadAll: () -> Unit,
     onShare: (String) -> Unit,
+    /** 下载库，用来在每首歌右侧显示下载状态。 */
+    downloads: DownloadLibrary,
+    onDownloadSong: (Song) -> Unit,
+    onCancelDownload: (String) -> Unit,
     contentBottomPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -102,10 +117,17 @@ fun PlaylistImportScreen(
             onRefresh = onRefresh,
             onDownloadAll = onDownloadAll,
             onShare = onShare,
+            downloads = downloads,
+            onDownloadSong = onDownloadSong,
+            onCancelDownload = onCancelDownload,
             contentBottomPadding = contentBottomPadding
         )
         return
     }
+
+    // ---- 添加歌单的两种方式：本地创建 / 从网易云导入
+    var formMode by remember { mutableStateOf(AddMode.CREATE) }
+    var newPlaylistName by remember { mutableStateOf("") }
 
     // ---- 「我的导入」多选模式
     var selectionMode by remember { mutableStateOf(false) }
@@ -180,17 +202,25 @@ fun PlaylistImportScreen(
             }
         } else {
             Text(
-                text = "导入歌单",
+                text = "歌单",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
             )
             Text(
-                text = "填网易云歌单号，或直接粘贴歌单分享链接",
+                text = when (formMode) {
+                    AddMode.CREATE -> "建一个空歌单，再从搜索页把喜欢的歌加进来"
+                    AddMode.IMPORT -> "填网易云歌单号，或直接粘贴歌单分享链接"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 20.dp, bottom = 16.dp)
+                modifier = Modifier.padding(start = 20.dp, bottom = 12.dp)
             )
+            AddModeSwitcher(
+                mode = formMode,
+                onModeChange = { formMode = it }
+            )
+            Spacer(Modifier.height(14.dp))
         }
 
         LazyColumn(
@@ -201,6 +231,60 @@ fun PlaylistImportScreen(
             if (!selectionMode) {
                 item {
                     Column {
+                        if (formMode == AddMode.CREATE) {
+                            // ---- 创建：只要一个名字
+                            OutlinedTextField(
+                                value = newPlaylistName,
+                                onValueChange = { newPlaylistName = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                label = { Text("歌单名称") },
+                                placeholder = { Text("例如 通勤路上") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.PlaylistPlay,
+                                        contentDescription = null
+                                    )
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (newPlaylistName.isNotBlank()) {
+                                        keyboard?.hide()
+                                        onCreatePlaylist(newPlaylistName.trim())
+                                        newPlaylistName = ""
+                                    }
+                                }),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                )
+                            )
+
+                            Spacer(Modifier.height(16.dp))
+
+                            Button(
+                                colors = glassButtonColors(),
+                                onClick = {
+                                    keyboard?.hide()
+                                    onCreatePlaylist(newPlaylistName.trim())
+                                    newPlaylistName = ""
+                                },
+                                enabled = newPlaylistName.isNotBlank(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .height(48.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("创建歌单")
+                            }
+                        }
+
+                        if (formMode == AddMode.IMPORT) {
                         // ---- 歌单号 / 链接
                         OutlinedTextField(
                             value = state.input,
@@ -259,6 +343,7 @@ fun PlaylistImportScreen(
                         Spacer(Modifier.height(16.dp))
 
                         Button(
+                            colors = glassButtonColors(),
                             onClick = {
                                 keyboard?.hide()
                                 onImport()
@@ -296,13 +381,14 @@ fun PlaylistImportScreen(
                                     .padding(horizontal = 24.dp)
                             )
                         }
+                        } // formMode == IMPORT
 
                         Spacer(Modifier.height(22.dp))
 
                         // ---- 已保存歌单
                         if (savedPlaylists.isNotEmpty()) {
                             Text(
-                                text = "我的导入（${savedPlaylists.size}）",
+                                text = "我的歌单（${savedPlaylists.size}）",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(start = 20.dp, bottom = 8.dp)
@@ -313,7 +399,7 @@ fun PlaylistImportScreen(
             } else {
                 item {
                     Text(
-                        text = "我的导入（${savedPlaylists.size}）",
+                        text = "我的歌单（${savedPlaylists.size}）",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp)
@@ -382,7 +468,7 @@ fun PlaylistImportScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "导入的歌单会自动保存；长按列表可批量删除。",
+                            text = "歌单会自动保存；长按列表可批量删除。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -417,6 +503,73 @@ fun PlaylistImportScreen(
     }
 }
 
+/**
+ * 歌曲行右侧的下载按钮。
+ *
+ * 三态：
+ * - 未下载 → 下载图标，点一下开始下
+ * - 下载中 → 环形进度 + 百分比，点一下取消（几百首的列表里，能单首取消比只能整单取消实用）
+ * - 已下载 → 实心对勾，不可点
+ */
+@Composable
+private fun SongDownloadButton(
+    task: DownloadState,
+    downloaded: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit
+) {
+    when {
+        task is DownloadState.Downloading -> {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickableNoRipple(onClick = onCancel),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    progress = { task.progress / 100f },
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Text(
+                    text = "${task.progress}",
+                    // 28dp 的环里要塞三位数，字号必须小；不显示 % 号省空间
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        downloaded -> {
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.DownloadDone,
+                    contentDescription = "已下载",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        else -> {
+            IconButton(onClick = onDownload) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = "下载",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
 /** 「我的导入」里的一行歌单。 */
 @Composable
 private fun SavedPlaylistRow(
@@ -434,6 +587,8 @@ private fun SavedPlaylistRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .glassCard()
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 else androidx.compose.ui.graphics.Color.Transparent
@@ -486,7 +641,11 @@ private fun SavedPlaylistRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "${playlist.size} 首 · 歌单号 ${playlist.playlistId}",
+                text = if (playlist.isLocalPlaylist) {
+                    "${playlist.size} 首 · 本地歌单"
+                } else {
+                    "${playlist.size} 首 · 歌单号 ${playlist.playlistId}"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -554,6 +713,9 @@ private fun ImportedPlaylistDetail(
     onRefresh: (String) -> Unit,
     onDownloadAll: () -> Unit,
     onShare: (String) -> Unit,
+    downloads: DownloadLibrary,
+    onDownloadSong: (Song) -> Unit,
+    onCancelDownload: (String) -> Unit,
     contentBottomPadding: PaddingValues
 ) {
     val id = state.playlistId
@@ -588,7 +750,12 @@ private fun ImportedPlaylistDetail(
                 )
                 Text(
                     text = buildString {
-                        append("${state.songs.size} 首 · 歌单号 ${state.playlistId}")
+                        append("${state.songs.size} 首")
+                        if (saved?.isLocalPlaylist == true) {
+                            append(" · 本地歌单")
+                        } else {
+                            append(" · 歌单号 ${state.playlistId}")
+                        }
                         if (state.saved) append(" · 已保存")
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -625,6 +792,7 @@ private fun ImportedPlaylistDetail(
         ) {
             Button(
                 onClick = { onPlaySong(0) },
+                colors = glassButtonColors(),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
@@ -648,11 +816,16 @@ private fun ImportedPlaylistDetail(
                 key = { _, song -> song.id },
                 contentType = { _, _ -> "song" }
             ) { index, song ->
+                val task = downloads.taskOf(song.id)
+                val downloaded = task is DownloadState.Done || downloads.isDownloaded(song.id)
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .glassCard()
                         .clickableNoRipple { onPlaySong(index) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -686,6 +859,14 @@ private fun ImportedPlaylistDetail(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+
+                    // ---- 下载按钮：未下载 / 下载中百分比 / 已下载 三态
+                    SongDownloadButton(
+                        task = task,
+                        downloaded = downloaded,
+                        onDownload = { onDownloadSong(song) },
+                        onCancel = { onCancelDownload(song.id) }
+                    )
                 }
             }
         }
@@ -702,5 +883,50 @@ private fun ImportedPlaylistDetail(
             onDownloadAll = onDownloadAll,
             onDismiss = { showMenu = false }
         )
+    }
+}
+
+/** 添加歌单的两种方式。 */
+private enum class AddMode(val label: String) {
+    CREATE("创建歌单"),
+    IMPORT("从网易云导入")
+}
+
+/** 两个胶囊按钮，切换创建 / 导入。 */
+@Composable
+private fun AddModeSwitcher(
+    mode: AddMode,
+    onModeChange: (AddMode) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        AddMode.entries.forEach { item ->
+            val selected = item == mode
+            val shape = RoundedCornerShape(50)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    )
+                    .clickableNoRipple { onModeChange(item) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

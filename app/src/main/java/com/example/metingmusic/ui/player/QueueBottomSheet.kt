@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.metingmusic.data.model.Song
 import com.example.metingmusic.ui.theme.clickableNoRipple
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalConfiguration
 
 /**
  * 底部弹出的播放队列面板。
@@ -54,6 +56,10 @@ fun QueueBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
+
+    // 面板内容 = 拖拽条 + 标题 + 列表，这里给列表留出「半屏减去头部」的高度
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val halfScreenHeight = (screenHeight * 0.5f) - 96.dp
 
     // 打开时自动滚到当前播放项，用户一眼能看到「我听到哪了」
     LaunchedEffect(currentIndex, queue.size) {
@@ -106,7 +112,11 @@ fun QueueBottomSheet(
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(vertical = 8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    // 半屏显示：队列再长也只占屏幕一半，下面露出播放页，
+                    // 用户既能挑歌又能看到当前播放状态
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = halfScreenHeight)
                 ) {
                     items(queue.size) { index ->
                         val song = queue[index]

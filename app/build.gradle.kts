@@ -20,8 +20,8 @@ android {
         applicationId = "com.example.metingmusic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

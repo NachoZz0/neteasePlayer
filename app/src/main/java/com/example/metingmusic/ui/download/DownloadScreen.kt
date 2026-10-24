@@ -71,6 +71,7 @@ import com.example.metingmusic.player.BatchDownloadState
 import com.example.metingmusic.ui.search.SearchViewModel
 import com.example.metingmusic.ui.theme.clickableNoRipple
 import com.example.metingmusic.ui.theme.longPressableNoRipple
+import com.example.metingmusic.ui.theme.glassCard
 
 /**
  * 「下载」页：列出已下载到本地的歌曲。
@@ -415,6 +416,8 @@ fun DownloadScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .glassCard()
                                 .background(
                                     if (checked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                                     else androidx.compose.ui.graphics.Color.Transparent

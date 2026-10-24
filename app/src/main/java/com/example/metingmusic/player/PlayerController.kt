@@ -200,6 +200,14 @@ class PlayerController(private val context: Context) {
     /** 上一次已知的「已下载集合」，用来发现「刚刚下载完成」的那首歌。 */
     private var knownDownloadedIds: Set<String> = emptySet()
 
+    /**
+     * 进入随机播放前的原始顺序。
+     *
+     * 随机模式是「真打乱队列」，队列一旦被打乱就回不去了，
+     * 所以进随机时先存一份原始顺序，切回顺序播放时恢复。
+     */
+    private var originalQueue: List<Song>? = null
+
     init {
         // 回填上次的定时设置（时长 + 是否播完再停）
         _state.update {
@@ -386,20 +394,82 @@ class PlayerController(private val context: Context) {
             PlayMode.SEQUENTIAL -> {
                 c.repeatMode = Player.REPEAT_MODE_OFF
                 c.shuffleModeEnabled = false
+                restoreOriginalOrderIfNeeded()
             }
             PlayMode.LIST_LOOP -> {
                 c.repeatMode = Player.REPEAT_MODE_ALL
                 c.shuffleModeEnabled = false
+                restoreOriginalOrderIfNeeded()
             }
             PlayMode.SINGLE_LOOP -> {
                 c.repeatMode = Player.REPEAT_MODE_ONE
                 c.shuffleModeEnabled = false
+                restoreOriginalOrderIfNeeded()
             }
             PlayMode.SHUFFLE -> {
+                // 不用播放器的 shuffleModeEnabled：那只是「播完这首随机挑下一首」，
+                // 队列本身没变，用户看到的列表顺序和实际播放顺序对不上。
+                // 这里直接把队列打乱，之后就是普通的顺序播放。
                 c.repeatMode = Player.REPEAT_MODE_ALL
-                c.shuffleModeEnabled = true
+                c.shuffleModeEnabled = false
+                enterShuffleOrderIfNeeded()
             }
         }
+    }
+
+    /**
+     * 把队列打乱一次，当前播放的歌留在最前面。
+     *
+     * 只有播放器里已经有内容时才动手 —— 会话刚连上时队列还没灌进去，
+     * 这时打乱会和 [connectSession] 里的 setMediaItems 打架。
+     */
+    private fun enterShuffleOrderIfNeeded() {
+        val c = controller ?: return
+        if (originalQueue != null) return
+        val s = _state.value
+        if (c.mediaItemCount <= 1 || s.queue.size <= 1) return
+
+        originalQueue = s.queue
+        val current = s.queue.getOrNull(s.currentIndex) ?: return
+        val rest = s.queue.filterIndexed { i, _ -> i != s.currentIndex }.shuffled()
+        val ordered = listOf(current) + rest
+
+        swapQueue(ordered, anchorIndex = 0)
+    }
+
+    /** 退出随机时恢复原始顺序，当前播放的歌位置跟着重算。 */
+    private fun restoreOriginalOrderIfNeeded() {
+        val original = originalQueue ?: return
+        originalQueue = null
+        val c = controller ?: return
+        if (c.mediaItemCount <= 1) return
+
+        val currentId = _state.value.currentSong?.id
+        val newIndex = original.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+        swapQueue(original, anchorIndex = newIndex)
+    }
+
+    /**
+     * 换掉播放器的整条队列，保持「当前这首继续播、进度不跳」。
+     *
+     * setMediaItems 会重建播放列表，所以要显式记住播放位置和播放状态再补回去。
+     */
+    private fun swapQueue(ordered: List<Song>, anchorIndex: Int) {
+        val c = controller ?: return
+        val wasPlaying = c.isPlaying
+        val pos = c.currentPosition.coerceAtLeast(0L)
+
+        _state.update { it.copy(queue = ordered, currentIndex = anchorIndex) }
+        c.setMediaItems(buildMediaItems(ordered), anchorIndex, pos)
+        if (wasPlaying) c.play()
+    }
+
+    /** 把 [songs] 打乱，但让 [startIndex] 那首排在最前。 */
+    private fun shuffledWithFirst(songs: List<Song>, startIndex: Int): List<Song> {
+        if (songs.size <= 1) return songs
+        val first = songs[startIndex]
+        val rest = songs.filterIndexed { i, _ -> i != startIndex }.shuffled()
+        return listOf(first) + rest
     }
 
     /** 保持当前曲目与进度，重建播放列表（音质变更、某首歌刚下载完时用）。 */
@@ -428,21 +498,53 @@ class PlayerController(private val context: Context) {
             _state.update { it.copy(queue = songs, currentIndex = startIndex, error = null) }
             return
         }
-        val index = startIndex.coerceIn(0, songs.lastIndex)
+        val start = startIndex.coerceIn(0, songs.lastIndex)
         pendingRestorePosition = 0L
-        _state.update { it.copy(queue = songs, currentIndex = index, error = null) }
+
+        // 随机模式下「播放全部」= 打乱歌单后从头顺序播；点某首歌则那首排第一
+        val ordered: List<Song>
+        val index: Int
+        if (_state.value.playMode == PlayMode.SHUFFLE) {
+            originalQueue = songs
+            ordered = shuffledWithFirst(songs, start)
+            index = 0
+        } else {
+            originalQueue = null
+            ordered = songs
+            index = start
+        }
+
+        _state.update { it.copy(queue = ordered, currentIndex = index, error = null) }
         _progress.update { it.copy(positionMs = 0L) }
 
-        c.setMediaItems(buildMediaItems(songs), index, 0L)
+        c.setMediaItems(buildMediaItems(ordered), index, 0L)
         c.prepare()
         c.play()
         applyPlayMode()
-        loadLyrics(songs[index])
+        loadLyrics(ordered[index])
     }
 
     fun playAt(index: Int) {
         val c = controller ?: return
         val song = _state.value.queue.getOrNull(index) ?: return
+
+        // 随机模式下点列表里的某首：把它挪到最前，后面的顺序保持不变
+        if (_state.value.playMode == PlayMode.SHUFFLE && index != 0) {
+            val s = _state.value
+            val reordered = listOf(song) + s.queue.filterIndexed { i, _ -> i != index }
+            originalQueue?.let { orig ->
+                // 原始顺序里也把它提到最前，退出随机时不会跳回去
+                val origIndex = orig.indexOfFirst { it.id == song.id }
+                if (origIndex > 0) {
+                    originalQueue = listOf(song) + orig.filterIndexed { i, _ -> i != origIndex }
+                }
+            }
+            swapQueue(reordered, anchorIndex = 0)
+            _progress.update { it.copy(positionMs = 0L) }
+            loadLyrics(song)
+            return
+        }
+
         _state.update { it.copy(currentIndex = index, error = null) }
         _progress.update { it.copy(positionMs = 0L) }
         // 播放列表和队列是一一对应的，直接按索引 seek 即可
@@ -647,8 +749,15 @@ class PlayerController(private val context: Context) {
      *
      * 下载需要「真实直链」，而播放列表里存的是 302 端点，所以这里单独解析一次。
      * 失败时写进 [PlayerUiState.error] 由 UI 提示。
+     *
+     * [originPlaylistId] / [originPlaylistName] 标记来源歌单 ——
+     * 从歌单页里点的下载要归到那个歌单分组，而不是「单曲」。
      */
-    fun download(song: Song) {
+    fun download(
+        song: Song,
+        originPlaylistId: String? = null,
+        originPlaylistName: String? = null
+    ) {
         if (downloadManager.isDownloaded(song.id)) {
             _state.update { it.copy(error = "「${song.name}」已经下载过了") }
             return
@@ -656,7 +765,13 @@ class PlayerController(private val context: Context) {
         scope.launch {
             repository.resolve(song, _state.value.bitrate)
                 .onSuccess { track ->
-                    downloadManager.download(song, track.streamUrl, _state.value.bitrate)
+                    downloadManager.download(
+                        song = song,
+                        streamUrl = track.streamUrl,
+                        bitrate = _state.value.bitrate,
+                        originPlaylistId = originPlaylistId,
+                        originPlaylistName = originPlaylistName
+                    )
                 }
                 .onFailure { e ->
                     _state.update { it.copy(error = e.message ?: "无法下载：解析失败") }

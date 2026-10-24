@@ -256,10 +256,12 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                         creatorId = existing?.creatorId,
                         creatorName = existing?.creatorName
                     )
+                    // 详情页要显示合并后的结果（含手动加的歌），不能直接用远端列表
+                    val merged = importedStore.get(playlistId)?.songs ?: list
                     _playlistState.update {
                         // 只在「当前正打开这个歌单」时同步详情页内容
                         if (it.playlistId == playlistId) {
-                            it.copy(refreshing = false, songs = list, error = null)
+                            it.copy(refreshing = false, songs = merged, error = null)
                         } else {
                             it.copy(refreshing = false)
                         }
@@ -287,6 +289,27 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
             if (it.playlistId == playlistId) ImportedPlaylistUiState(input = it.input)
             else it
         }
+    }
+
+    /**
+     * 新建一个本地空歌单。
+     *
+     * @return 给用户看的提示文案（成功 / 失败都有）。
+     */
+    fun createPlaylist(name: String): String {
+        val id = importedStore.create(name)
+        return if (id == null) "歌单名不能为空" else "已创建「${name.trim()}」"
+    }
+
+    /**
+     * 把一首歌加进歌单。
+     *
+     * @return 给用户看的提示文案。
+     */
+    fun addSongToPlaylist(playlistId: String, song: Song): String {
+        val added = importedStore.addSongs(playlistId, listOf(song))
+        val name = importedStore.get(playlistId)?.name ?: "歌单"
+        return if (added > 0) "已把「${song.name}」加入「$name」" else "「$name」里已经有这首歌了"
     }
 
     /** 批量删除已保存的歌单（长按多选）。 */

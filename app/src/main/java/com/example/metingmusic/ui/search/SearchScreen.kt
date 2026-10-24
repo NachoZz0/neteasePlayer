@@ -53,6 +53,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.metingmusic.data.model.Song
 import com.example.metingmusic.ui.theme.clickableNoRipple
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import com.example.metingmusic.ui.theme.glassCard
 
 /**
  * 搜索页。
@@ -67,6 +69,8 @@ fun SearchScreen(
     onPlaySong: (List<Song>, Int) -> Unit,
     onOpenPlayer: () -> Unit,
     onDownload: (Song) -> Unit,
+    /** 把某首歌加入已有歌单（弹出选择器）。 */
+    onAddToPlaylist: (Song) -> Unit,
     isDownloaded: (String) -> Boolean,
     contentBottomPadding: PaddingValues = PaddingValues(0.dp),
     viewModel: SearchViewModel = viewModel()
@@ -173,6 +177,7 @@ fun SearchScreen(
                                 onOpenPlayer()
                             },
                             onDownload = { onDownload(song) },
+                            onAddToPlaylist = { onAddToPlaylist(song) },
                             downloaded = isDownloaded(song.id)
                         )
                     }
@@ -209,6 +214,7 @@ private fun SongRow(
     song: Song,
     onClick: () -> Unit,
     onDownload: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     downloaded: Boolean
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -216,8 +222,10 @@ private fun SongRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .glassCard()
             .clickableNoRipple(onClick = onClick)
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
@@ -271,6 +279,19 @@ private fun SongRow(
                     onClick = {
                         menuExpanded = false
                         onDownload()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("加入歌单") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onAddToPlaylist()
                     }
                 )
             }

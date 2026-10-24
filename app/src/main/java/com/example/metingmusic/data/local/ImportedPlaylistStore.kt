@@ -34,11 +34,28 @@ data class SavedPlaylist(
      * 声明成非空 String 会在访问时直接抛 NPE。
      */
     @SerializedName("cover") val cover: String? = null,
+    /**
+     * 是否是「本地创建」的歌单（区别于从网易云导入的）。
+     *
+     * 本地歌单不能刷新（没有远端来源），分享也要退化成纯文本。
+     * 同样必须是可空类型 —— Gson 不走构造器，老数据读出来是 null。
+     */
+    @SerializedName("isLocal") val isLocal: Boolean? = null,
+    /**
+     * 用户手动「加入歌单」进来的歌曲 id。
+     *
+     * 刷新歌单时会用远端曲目覆盖本地列表，这些手动加的歌远端没有，
+     * 不记下来就会被冲掉。同样必须是可空类型（Gson 老数据是 null）。
+     */
+    @SerializedName("manualSongIds") val manualSongIds: List<String>? = null,
     @SerializedName("userId") val userId: String? = null,
     @SerializedName("creatorId") val creatorId: String? = null,
     @SerializedName("creatorName") val creatorName: String? = null
 ) {
     val size: Int get() = songs.size
+
+    /** 本地创建的歌单（null 视为导入的）。 */
+    val isLocalPlaylist: Boolean get() = isLocal == true
 
     /**
      * 实际用于展示的封面。
@@ -49,6 +66,26 @@ data class SavedPlaylist(
     val displayCover: String
         get() = cover?.takeIf { it.isNotBlank() }
             ?: songs.firstOrNull()?.pic.orEmpty()
+}
+
+/**
+ * 刷新歌单时的合并规则。
+ *
+ * 远端列表是「权威内容」，但它不包含用户手动加进来的歌。
+ * 所以：**远端曲目在前，手动加入且远端没有的接在后面**。
+ *
+ * 不用「旧列表减去新列表」的朴素做法 —— 那样会把用户在网易云上
+ * 主动删掉的歌也当成「手动加的」留下来，越刷越多。
+ */
+internal fun mergeRefreshedSongs(
+    remote: List<Song>,
+    previousSongs: List<Song>,
+    manualIds: Set<String>
+): List<Song> {
+    if (manualIds.isEmpty()) return remote
+    val remoteIds = remote.mapTo(HashSet()) { it.id }
+    val extras = previousSongs.filter { it.id in manualIds && it.id !in remoteIds }
+    return if (extras.isEmpty()) remote else remote + extras
 }
 
 /**
@@ -86,11 +123,20 @@ class ImportedPlaylistStore(context: Context) {
         creatorName: String? = null
     ) {
         val previous = get(playlistId)
+        val manualIds = previous?.manualSongIds.orEmpty().toSet()
+        // 刷新时把手动加的歌补回去，否则「刷新」等于「清空我加的歌」
+        val mergedSongs = mergeRefreshedSongs(
+            remote = songs,
+            previousSongs = previous?.songs.orEmpty(),
+            manualIds = manualIds
+        )
         val record = SavedPlaylist(
             playlistId = playlistId,
             name = name,
-            songs = songs,
-            cover = cover.ifBlank { songs.firstOrNull()?.pic.orEmpty() },
+            songs = mergedSongs,
+            cover = cover.ifBlank { mergedSongs.firstOrNull()?.pic.orEmpty() },
+            isLocal = previous?.isLocal,
+            manualSongIds = previous?.manualSongIds,
             userId = userId ?: previous?.userId,
             creatorId = creatorId ?: previous?.creatorId,
             creatorName = creatorName ?: previous?.creatorName
@@ -98,6 +144,81 @@ class ImportedPlaylistStore(context: Context) {
         mutate { list ->
             // 同一个歌单号只保留一条，放到最前面
             listOf(record) + list.filterNot { it.playlistId == playlistId }
+        }
+    }
+
+    /**
+     * 新建一个本地空歌单。
+     *
+     * 用时间戳生成 id，并加 `local-` 前缀 —— 这样和网易云的数字歌单号不会撞，
+     * 也便于在别处一眼看出这是本地歌单。
+     *
+     * @return 新歌单的 id；名称为空时返回 null。
+     */
+    fun create(name: String): String? {
+        val clean = name.trim()
+        if (clean.isEmpty()) return null
+        val id = "local-${System.currentTimeMillis()}"
+        val record = SavedPlaylist(
+            playlistId = id,
+            name = clean,
+            songs = emptyList(),
+            isLocal = true
+        )
+        mutate { list -> listOf(record) + list }
+        return id
+    }
+
+    /**
+     * 把歌曲追加到歌单末尾。
+     *
+     * 已在歌单里的歌会被跳过（按歌曲 id 判重），避免重复点「加入歌单」后出现多条一样的。
+     *
+     * @return 实际新增的条数。
+     */
+    fun addSongs(playlistId: String, newSongs: List<Song>): Int {
+        val existing = get(playlistId) ?: return 0
+        val known = existing.songs.map { it.id }.toMutableSet()
+        val toAdd = newSongs.filter { known.add(it.id) }
+        if (toAdd.isEmpty()) return 0
+
+        val merged = existing.songs + toAdd
+        mutate { list ->
+            list.map {
+                if (it.playlistId == playlistId) {
+                    it.copy(
+                        songs = merged,
+                        // 记住哪些是手动加的，刷新时才不会被远端列表冲掉
+                        manualSongIds = (it.manualSongIds.orEmpty() + toAdd.map { s -> s.id })
+                            .distinct(),
+                        // 原本没封面时，用第一首歌补上
+                        cover = it.cover?.takeIf { c -> c.isNotBlank() }
+                            ?: merged.firstOrNull()?.pic.orEmpty()
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+        return toAdd.size
+    }
+
+    /** 从歌单里移除一首歌。 */
+    fun removeSong(playlistId: String, songId: String) {
+        val existing = get(playlistId) ?: return
+        if (existing.songs.none { it.id == songId }) return
+        mutate { list ->
+            list.map {
+                if (it.playlistId == playlistId) {
+                    it.copy(
+                        songs = it.songs.filterNot { song -> song.id == songId },
+                        manualSongIds = it.manualSongIds.orEmpty()
+                            .filterNot { id -> id == songId }
+                    )
+                } else {
+                    it
+                }
+            }
         }
     }
 
