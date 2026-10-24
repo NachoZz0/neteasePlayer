@@ -14,6 +14,9 @@
     <!-- Android 13+ 通知栏播放控制需要 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 应用内更新：下载完 APK 后唤起系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -23,6 +26,18 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.MetingMusic"
         tools:targetApi="35">
+
+        <!-- 应用内更新：安装器需要读 cacheDir/updates 下的 apk，
+             直接给 file:// 会触发 FileUriExposedException，必须走 FileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <activity
             android:name=".MainActivity"

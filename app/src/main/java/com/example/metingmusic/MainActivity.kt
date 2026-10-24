@@ -130,6 +130,10 @@ import com.example.metingmusic.ui.settings.UpdateUiState
 import kotlinx.coroutines.launch
 import android.content.Intent
 import android.net.Uri
+import com.example.metingmusic.data.remote.ApkInstaller
+import com.example.metingmusic.data.remote.MetingApi
+import com.example.metingmusic.ui.settings.ApkDownloadState
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -267,6 +271,47 @@ private fun MusicApp(
     val updateScope = rememberCoroutineScope()
     var updateState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
     var newRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+    var apkState by remember { mutableStateOf<ApkDownloadState>(ApkDownloadState.Idle) }
+    var downloadedApk by remember { mutableStateOf<File?>(null) }
+    val httpClient = remember { MetingApi.defaultClient }
+
+    /** 下载 Release 里的 APK。 */
+    fun downloadApk(release: ReleaseInfo) {
+        val asset = release.apkAsset ?: return
+        apkState = ApkDownloadState.Downloading(-1f)
+        updateScope.launch {
+            ApkInstaller.download(
+                context = context,
+                asset = asset,
+                client = httpClient,
+                onProgress = { p -> apkState = ApkDownloadState.Downloading(p) }
+            ).onSuccess { file ->
+                downloadedApk = file
+                apkState = ApkDownloadState.Ready
+            }.onFailure { e ->
+                apkState = ApkDownloadState.Failed(e.message ?: "下载失败")
+            }
+        }
+    }
+
+    /** 唤起系统安装器。 */
+    fun installApk() {
+        val file = downloadedApk ?: return
+        when (val result = ApkInstaller.install(context, file)) {
+            ApkInstaller.InstallResult.Started -> {
+                // 安装器已拉起，收起弹窗；装完用户自己会回来
+                newRelease = null
+                apkState = ApkDownloadState.Idle
+            }
+            // 已跳到授权页，保持 Ready，用户授权回来点「立即安装」即可，不用重下
+            ApkInstaller.InstallResult.NeedPermission -> {
+                apkState = ApkDownloadState.NeedPermission
+            }
+            is ApkInstaller.InstallResult.Failed -> {
+                apkState = ApkDownloadState.Failed(result.message)
+            }
+        }
+    }
     val currentVersion = remember { UpdateApi.currentVersion(context) }
 
     fun checkUpdate(silent: Boolean) {
@@ -333,9 +378,10 @@ private fun MusicApp(
         // ---- 全局背景：主题底色 + 30% 透明度的插画
         AppBackground()
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                // 左右滑动切换：往右边的 tab 切换时新页面从右边进来，反之从左边
+        // 内容铺满整屏 —— 底部悬浮条必须叠在它上面，才真的「浮」起来。
+        // 之前把底部条放在 Column 里当兄弟节点，内容到它上方就截止了，
+        // 后面根本没有东西可透，看起来自然像贴了一块实心色块。
+        Box(modifier = Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
@@ -487,24 +533,30 @@ private fun MusicApp(
                 }
             }
 
-            // ---- 底部悬浮区：迷你播放器 + 胶囊导航栏
-            //
-            // 两者都浮在内容之上，所以下面要垫一层「透明 → 底色」的渐隐，
-            // 让列表滚到底部时淡出，而不是被硬切一刀留下一条空缺。
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.97f)
+        // ---- 底部悬浮区：迷你播放器 + 胶囊导航栏
+        // align(BottomCenter) 让它们叠在内容之上，列表才能从后面穿过去
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+                // 只有「贴底」样式才垫渐变：那种样式下栏是不透明的，需要一层过渡避免硬切。
+                // 悬浮样式**不能**垫 —— 垫了就变成一整块底色，胶囊看起来像贴在色块上，
+                // 后面的列表也看不见了。悬浮的意义就是内容从胶囊底下穿过去。
+                if (!appearance.floatingNavBar) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0f),
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.92f)
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
+                }
 
                 Column(
                     modifier = Modifier
@@ -541,7 +593,6 @@ private fun MusicApp(
                     )
                 }
             }
-        }
 
         // ---- 全屏歌词页
         AnimatedVisibility(
@@ -601,6 +652,9 @@ private fun MusicApp(
         UpdateDialog(
             release = release,
             currentVersion = currentVersion,
+            downloadState = apkState,
+            onDownload = { downloadApk(release) },
+            onInstall = { installApk() },
             onOpenRelease = {
                 runCatching {
                     context.startActivity(
@@ -608,8 +662,12 @@ private fun MusicApp(
                     )
                 }
                 newRelease = null
+                apkState = ApkDownloadState.Idle
             },
-            onDismiss = { newRelease = null }
+            onDismiss = {
+                newRelease = null
+                apkState = ApkDownloadState.Idle
+            }
         )
     }
 
@@ -734,14 +792,8 @@ private fun TabBar(
     onSelect: (Int) -> Unit
 ) {
     val frosting = LocalFrosting.current
-    // 磨砂关掉时用完全不透明的底色 —— 否则和磨砂态（80% + 模糊）几乎看不出差别，
-    // 用户会以为「开关没生效」
     val frosted = frosting.navBar && supportsRealBlur
-    val tint = if (frosted) {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.80f)
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
+    val tint = bottomBarTint(frosted = frosted, floating = floating)
 
     val shape = if (floating) RoundedCornerShape(26.dp) else RectangleShape
 
@@ -751,7 +803,9 @@ private fun TabBar(
             .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
             .clip(shape)
     ) {
-        if (frosted) {
+        // 只有「贴底」才画模糊背景层。悬浮态必须留空 —— FrostedBackdrop 会自己
+        // 铺一层「模糊后的背景」，把后面的列表整个盖住，那就不是悬浮而是贴在色块上了。
+        if (frosted && !floating) {
             FrostedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = 30.dp,
@@ -814,6 +868,26 @@ private fun TabBar(
     }
 }
 
+/**
+ * 底部栏的底色。
+ *
+ * 三种情况：
+ * - 没开磨砂 → 完全不透明（和磨砂态拉开差别，否则开关看着没反应）
+ * - 悬浮 → 45% 不透明。悬浮的意义就是「内容从底下穿过去」，
+ *   80% 的观感是一条实心色带，透不出东西。
+ * - 贴底 → 80% 不透明，整条栏更实，和内容的边界更清楚。
+ *
+ * 注：Compose 没法真正模糊「背后的列表内容」（Modifier.blur 只糊自己，
+ * 而 FrostedBackdrop 糊的是背景图），所以悬浮态靠低不透明度让列表透出来。
+ */
+@Composable
+private fun bottomBarTint(frosted: Boolean, floating: Boolean) =
+    when {
+        !frosted -> MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        floating -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.80f)
+    }
+
 @Composable
 private fun MiniPlayerBar(
     floating: Boolean,
@@ -831,11 +905,7 @@ private fun MiniPlayerBar(
     val frosting = LocalFrosting.current
     // 迷你播放器和导航栏是一组底部控件，共用同一个磨砂开关，保证观感一致
     val frosted = frosting.navBar && supportsRealBlur
-    val tint = if (frosted) {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.80f)
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
+    val tint = bottomBarTint(frosted = frosted, floating = floating)
     val shape = if (floating) RoundedCornerShape(20.dp) else RectangleShape
 
     Box(
@@ -844,7 +914,8 @@ private fun MiniPlayerBar(
             .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
             .clip(shape)
     ) {
-        if (frosted) {
+        // 同 TabBar：悬浮态不铺背景层，让列表从卡片底下透出来
+        if (frosted && !floating) {
             FrostedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = 30.dp,

@@ -9,6 +9,15 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
+/** Release 里附带的一个文件。 */
+@Immutable
+data class ReleaseAsset(
+    @SerializedName("name") val name: String = "",
+    @SerializedName("size") val size: Long = 0L,
+    @SerializedName("browser_download_url") val browserDownloadUrl: String = "",
+    @SerializedName("content_type") val contentType: String = ""
+)
+
 /** 一个 GitHub Release。 */
 @Immutable
 data class ReleaseInfo(
@@ -17,10 +26,24 @@ data class ReleaseInfo(
     @SerializedName("body") val body: String = "",
     @SerializedName("html_url") val htmlUrl: String = "",
     @SerializedName("prerelease") val prerelease: Boolean = false,
-    @SerializedName("published_at") val publishedAt: String = ""
+    @SerializedName("published_at") val publishedAt: String = "",
+    @SerializedName("assets") val assets: List<ReleaseAsset>? = null
 ) {
     /** 去掉前缀 v 的版本号，例如 `v1.3.1` -> `1.3.1`。 */
     val version: String get() = tagName.trim().removePrefix("v").removePrefix("V")
+
+    /**
+     * 找可安装的 APK。
+     *
+     * 优先认 .apk 结尾的文件；有些 release 会把安装包命名成别的，
+     * 所以再退一步看 content_type。
+     */
+    val apkAsset: ReleaseAsset?
+        get() = assets.orEmpty().firstOrNull {
+            it.browserDownloadUrl.isNotBlank() && it.name.endsWith(".apk", ignoreCase = true)
+        } ?: assets.orEmpty().firstOrNull {
+            it.contentType.contains("android.package", ignoreCase = true)
+        }
 }
 
 /**
