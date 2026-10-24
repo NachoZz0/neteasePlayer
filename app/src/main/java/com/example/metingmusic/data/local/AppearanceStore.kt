@@ -44,6 +44,14 @@ data class Appearance(
      */
     @SerializedName("globalBlur") val globalBlur: Boolean = false,
     /**
+     * 底部栏背景模糊的强度（dp）。
+     *
+     * 范围 0~80：0 等于关掉模糊只留半透明，80 基本糊成一片色块。
+     * 参考 NeriPlayer 的默认值是 18~28dp；这里默认给 60dp，因为列表是白字小图标，
+     * 同样的半径下比纯色封面更容易看出轮廓，要更糊一点才像参考图。
+     */
+    @SerializedName("blurRadiusDp") val blurRadiusDp: Float = 60f,
+    /**
      * 底部导航栏是否悬浮。
      *
      * true = 浮在内容上的胶囊；false = 贴底的整条导航栏。

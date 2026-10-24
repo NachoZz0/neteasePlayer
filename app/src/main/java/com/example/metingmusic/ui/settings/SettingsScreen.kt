@@ -47,9 +47,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
-import com.example.metingmusic.ui.theme.supportsRealBlur
+import com.example.metingmusic.ui.theme.rememberGlassSupported
 import com.example.metingmusic.ui.theme.glassCard
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
+import kotlin.math.roundToInt
 
 /** 检查更新的界面状态。 */
 sealed interface UpdateUiState {
@@ -89,12 +91,14 @@ fun SettingsScreen(
     onAccentFromBackgroundChange: (Boolean) -> Unit,
     onGlobalBlurChange: (Boolean) -> Unit,
     onBottomFrostedChange: (Boolean) -> Unit,
+    onBlurRadiusChange: (Float) -> Unit,
     onFloatingNavBarChange: (Boolean) -> Unit,
     updateState: UpdateUiState,
     onCheckUpdate: () -> Unit,
     contentBottomPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val context = LocalContext.current
+    val glassSupported = rememberGlassSupported()
     val versionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -234,30 +238,68 @@ fun SettingsScreen(
             SectionHeader(icon = Icons.Default.Image, title = "模糊与底部栏")
             SettingRow(
                 title = "全局模糊",
-                subtitle = if (supportsRealBlur) {
+                subtitle = if (glassSupported) {
                     "背景整体模糊，卡片 / 歌单 / 按钮变成玻璃质感"
                 } else {
-                    "需要 Android 12 及以上系统"
+                    "当前设备不支持（需要 Android 13+ 且内存足够）"
                 }
             ) {
                 Switch(
                     checked = appearance.globalBlur,
                     onCheckedChange = onGlobalBlurChange,
-                    enabled = supportsRealBlur
+                    enabled = glassSupported
                 )
             }
             SettingRow(
-                title = "底部栏磨砂",
-                subtitle = if (supportsRealBlur) {
-                    "导航栏和迷你播放器实时模糊背景"
+                title = "底栏高级模糊",
+                subtitle = if (glassSupported) {
+                    "仅悬浮样式生效"
                 } else {
-                    "当前系统低于 Android 12，只能半透明"
+                    "当前设备不支持，只能半透明"
                 }
             ) {
                 Switch(
                     checked = appearance.bottomFrosted,
                     onCheckedChange = onBottomFrostedChange
                 )
+            }
+            if (appearance.bottomFrosted) {
+                // 模糊强度：滑杆比几个预设档位好用，用户能自己找到「糊得刚好」的位置
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                        .glassCard(corner = 14.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "模糊强度", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = "${appearance.blurRadiusDp.roundToInt()} dp",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = when {
+                            appearance.blurRadiusDp < 12f -> "几乎看不出模糊"
+                            appearance.blurRadiusDp < 30f -> "轻微磨砂，还能看出内容轮廓"
+                            appearance.blurRadiusDp < 55f -> "标准毛玻璃"
+                            else -> "重度模糊，只剩色块"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = appearance.blurRadiusDp,
+                        onValueChange = onBlurRadiusChange,
+                        valueRange = 0f..80f,
+                        steps = 15,
+                        enabled = glassSupported
+                    )
+                }
             }
             SettingRow(
                 title = "悬浮样式",

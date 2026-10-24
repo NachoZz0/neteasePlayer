@@ -134,6 +134,20 @@ import com.example.metingmusic.data.remote.ApkInstaller
 import com.example.metingmusic.data.remote.MetingApi
 import com.example.metingmusic.ui.settings.ApkDownloadState
 import java.io.File
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import com.example.metingmusic.ui.theme.FrostedContentBackdrop
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.luminance
+import com.example.metingmusic.ui.theme.rememberGlassSupported
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.foundation.border
 
 class MainActivity : ComponentActivity() {
 
@@ -375,17 +389,49 @@ private fun MusicApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ---- 全局背景：主题底色 + 30% 透明度的插画
-        AppBackground()
-
-        // 内容层：每帧把内容录进这个图层，底部悬浮栏再拿它做「背景模糊」。
-        // 这样模糊的是真实的列表内容，而不是一张背景图。
-
+        // 底部悬浮栏的背景模糊层：每帧把「背景 + 页面内容」录进来。
+        //
+        // ⚠️ 背景图必须也录进去 —— 只录页面内容的话，图层里大片是透明的，
+        // 糊完还是透出下面的背景，看起来就像「根本没糊」。
+        val blurLayer = rememberGraphicsLayer()
+        // 录制节流：模糊层不用每帧都重录，隔帧录一次肉眼几乎看不出差别，
+        // 但「整屏重绘一遍」的开销直接砍半。
+        val recordThrottle = remember { RecordThrottle(every = 2) }
+        // 没开模糊（开关关了 / 强度 0 / 贴底样式）就完全不用录，省掉整屏重绘
+        val blurActive = appearance.bottomFrosted &&
+            appearance.floatingNavBar &&
+            appearance.blurRadiusDp > 0f
+        // 底部悬浮区（迷你播放器 + 胶囊 + 内边距）大约这么高，留够余量
+        val blurStripPx = with(LocalDensity.current) { 360.dp.toPx() }
 
         // 内容铺满整屏 —— 底部悬浮条必须叠在它上面，才真的「浮」起来。
-        // 之前把底部条放在 Column 里当兄弟节点，内容到它上方就截止了，
-        // 后面根本没有东西可透，看起来自然像贴了一块实心色块。
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    // 性能：
+                    // 1) 没开模糊就完全不录 —— 省掉一整遍内容重绘
+                    // 2) 开了也只隔帧录一次 —— 滚动时肉眼看不出差别，开销减半
+                    // 3) 只录底部那一条 —— 模糊层最终只用在底部栏那么高的区域
+                    if (blurActive && recordThrottle.allow()) {
+                    blurLayer.record {
+                        clipRect(
+                            left = 0f,
+                            top = (size.height - blurStripPx).coerceAtLeast(0f),
+                            right = size.width,
+                            bottom = size.height
+                        ) {
+                            this@drawWithContent.drawContent()
+                        }
+                    }
+                    }
+                    // 原内容直接画，不经过图层
+                    drawContent()
+                }
+        ) {
+                // ---- 全局背景：主题底色 + 插画（放进录制范围，模糊层才完整）
+                AppBackground()
+
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
@@ -526,6 +572,9 @@ private fun MusicApp(
                         onBottomFrostedChange = { enabled ->
                             onAppearanceChange(appearance.copy(bottomFrosted = enabled))
                         },
+                        onBlurRadiusChange = { radius ->
+                            onAppearanceChange(appearance.copy(blurRadiusDp = radius))
+                        },
                         onFloatingNavBarChange = { floating ->
                             onAppearanceChange(appearance.copy(floatingNavBar = floating))
                         },
@@ -581,6 +630,8 @@ private fun MusicApp(
                     ) {
                         MiniPlayerBar(
                             floating = appearance.floatingNavBar,
+                            blurLayer = blurLayer,
+                            blurRadiusDp = appearance.blurRadiusDp,
 
                             state = state,
                             progressFlow = controller.progress,
@@ -593,6 +644,8 @@ private fun MusicApp(
 
                     TabBar(
                         floating = appearance.floatingNavBar,
+                        blurLayer = blurLayer,
+                        blurRadiusDp = appearance.blurRadiusDp,
 
                         selectedIndex = selectedTab,
                         onSelect = { index -> selectedTab = index }
@@ -794,35 +847,51 @@ private fun MusicApp(
 @Composable
 private fun TabBar(
     floating: Boolean,
+    blurLayer: GraphicsLayer,
+    blurRadiusDp: Float,
     selectedIndex: Int,
     onSelect: (Int) -> Unit
 ) {
     val frosting = LocalFrosting.current
-    val frosted = frosting.navBar && supportsRealBlur
-    val tint = bottomBarTint(frosted = frosted, floating = floating)
+    // 模糊只在「悬浮」样式下启用：贴底时整条栏是实心的，背后没有内容要透，
+    // 再叠一层模糊纯属浪费。设备跑不动时也退回不透明底色。
+    // 注意：这里不判断强度是否为 0 —— 强度 0 时也要走「磨砂态」，
+    // 那样底色是透明的，栏就是全透明（只是不模糊），符合「0 = 全透明」的预期
+    val frosted = frosting.navBar && floating && rememberGlassSupported()
+    // 导航栏用「模糊 + 主题色面板」和纯模糊的迷你播放器区分开；
+    // 但强度为 0 时要连底色一起去掉，否则只剩一块白板（模糊层不画了）
+    val tint = if (frosted && blurRadiusDp <= 0f) {
+        Color.Transparent
+    } else {
+        bottomBarTint(frosted = frosted, floating = floating, darkPanel = true)
+    }
 
     val shape = if (floating) RoundedCornerShape(26.dp) else RectangleShape
+    // 强度 0 = 全透明：连阴影和描边都不能画，否则会留下一个「白块」轮廓
+    val panelVisible = !(frosted && blurRadiusDp <= 0f)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
+            .then(
+                if (floating && panelVisible) Modifier.shadow(elevation = 12.dp, shape = shape)
+                else Modifier
+            )
             .clip(shape)
+            // 描边始终保留：即使强度 0 也要有轮廓，否则面板边界完全消失
+            .then(
+                if (frosted) Modifier.border(0.8.dp, glassBorderColor(), shape)
+                else Modifier
+            )
     ) {
-        if (frosted && supportsRealBlur && !floating) {
-            // 贴底样式用背景图模糊，让整条栏更「实」
-            FrostedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                radius = 30.dp,
-                tint = tint
-            )
-        } else {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(tint)
-            )
-        }
+        // 导航栏也要模糊，但在模糊之上压一层主题色（浅色白 / 深色黑，78% 不透明），
+        // 这样既是毛玻璃、又比「纯模糊」的迷你播放器更实，两者一眼能分开。
+        FrostedContentBackdrop(
+            layer = blurLayer,
+            modifier = Modifier.matchParentSize(),
+            tint = tint,
+            radius = if (frosted) blurRadiusDp.dp else 0.dp
+        )
 
         Row(
             modifier = Modifier
@@ -840,8 +909,7 @@ private fun TabBar(
                         .weight(1f)
                         .clip(RoundedCornerShape(20.dp))
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
-                            else Color.Transparent
+                            if (selected) barSelectedPill(frosted) else Color.Transparent
                         )
                         .clickableNoRipple { onSelect(index) }
                         .padding(vertical = 7.dp),
@@ -855,8 +923,7 @@ private fun TabBar(
                             MainTab.Settings -> Icons.Default.Settings
                         },
                         contentDescription = tab.label,
-                        tint = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = barForeground(frosted, selected),
                         modifier = Modifier.size(21.dp)
                     )
                     Spacer(Modifier.height(3.dp))
@@ -864,8 +931,7 @@ private fun TabBar(
                         text = tab.label,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = barForeground(frosted, selected)
                     )
                 }
             }
@@ -873,29 +939,106 @@ private fun TabBar(
     }
 }
 
+/** 当前是不是深色主题（玻璃色和前景色都要跟着它走）。 */
+/** 每 [every] 帧才放行一次，用来给「每帧重录整屏」减负。 */
+private class RecordThrottle(private val every: Int = 2) {
+    private var count = 0
+
+    fun allow(): Boolean {
+        count++
+        return if (count >= every) {
+            count = 0
+            true
+        } else {
+            false
+        }
+    }
+}
+
+@Composable
+private fun isDarkTheme(): Boolean =
+    // 不能用 background 判断：背景会被主题色染色（比如橙色），亮度可能掉到 0.5 以下，
+    // 浅色模式就会被误判成深色，导致白底白字。
+    // onBackground 是「背景上的文字色」，深色主题下一定是亮的，判断可靠。
+    MaterialTheme.colorScheme.onBackground.luminance() > 0.5f
+
 /**
  * 底部栏的底色。
  *
- * 三种情况：
- * - 没开磨砂 → 完全不透明（和磨砂态拉开差别，否则开关看着没反应）
- * - 悬浮 → 45% 不透明。悬浮的意义就是「内容从底下穿过去」，
- *   80% 的观感是一条实心色带，透不出东西。
- * - 贴底 → 80% 不透明，整条栏更实，和内容的边界更清楚。
+ * 磨砂态**不加任何着色**（完全透明）—— 栏里看到的就是「被糊掉的背后内容」本身，
+ * 而不是「一层半透明色 + 模糊」。加了着色会显得像蒙了层纱，反而不像毛玻璃。
  *
- * 注：Compose 没法真正模糊「背后的列表内容」（Modifier.blur 只糊自己，
- * 而 FrostedBackdrop 糊的是背景图），所以悬浮态靠低不透明度让列表透出来。
+ * 没开磨砂时才用主题底色，且几乎不透明。
  */
 @Composable
-private fun bottomBarTint(frosted: Boolean, floating: Boolean) =
-    when {
-        !frosted -> MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-        floating -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.80f)
+private fun bottomBarTint(
+    frosted: Boolean,
+    floating: Boolean,
+    darkPanel: Boolean = false
+): Color {
+    if (!frosted) return MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+    // 导航栏：跟随主题取白/黑，但把不透明度拉高，做成一块「实」面板，
+    // 和纯模糊（全透明）的迷你播放器区分开
+    if (darkPanel) {
+        val base = if (isDarkTheme()) Color(0xFF0E1013) else Color.White
+        return base.copy(alpha = if (floating) 0.78f else 0.92f)
     }
+    return Color.Transparent
+}
+
+/** 玻璃上的前景色（图标 / 文字）。 */
+@Composable
+private fun barForeground(
+    frosted: Boolean,
+    selected: Boolean,
+    darkPanel: Boolean = false
+): Color {
+    val dark = isDarkTheme()
+    if (!frosted) {
+        return if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    // 前景跟随主题：深色主题用白，浅色主题用主题前景色
+    return when {
+        selected -> if (dark) Color.White else MaterialTheme.colorScheme.onSurface
+        else -> if (dark) Color.White.copy(alpha = 0.72f)
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+/**
+ * 玻璃面板的描边。
+ *
+ * 去掉底色之后，面板和页面颜色一样、分不出边界，所以用一圈极细的描边勾出轮廓 ——
+ * 真实毛玻璃边缘也有一道高光，加了反而更像。
+ */
+@Composable
+private fun glassBorderColor(): Color =
+    if (isDarkTheme()) Color.White.copy(alpha = 0.18f)
+    else Color.Black.copy(alpha = 0.10f)
+
+/** 毛玻璃面板的底色：跟主题走，压住模糊背景保证文字可读。 */
+@Composable
+private fun glassPanelTint(): Color =
+    // 固定深色，不跟主题走：
+    // - 深色能压住背后的列表文字（浅色面板要压住就得不透明，那样又看不见模糊了）
+    // - 深色上模糊的明暗层次更明显，观感更接近参考图那种黑玻璃
+    Color(0xFF14161A).copy(alpha = 0.72f)
+
+/** 选中项背后的胶囊底色。 */
+@Composable
+private fun barSelectedPill(frosted: Boolean, darkPanel: Boolean = false): Color {
+    if (!frosted) return MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+    // 选中胶囊也跟随主题：深色面板用淡白，浅色面板用主题的 primaryContainer
+    return if (isDarkTheme()) Color.White.copy(alpha = 0.16f)
+    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+}
 
 @Composable
 private fun MiniPlayerBar(
     floating: Boolean,
+    blurLayer: GraphicsLayer,
+    blurRadiusDp: Float,
     state: PlayerUiState,
     progressFlow: StateFlow<PlaybackProgress>,
     onExpand: () -> Unit,
@@ -908,31 +1051,43 @@ private fun MiniPlayerBar(
     val progress by progressFlow.collectAsStateWithLifecycle()
 
     val frosting = LocalFrosting.current
-    // 迷你播放器和导航栏是一组底部控件，共用同一个磨砂开关，保证观感一致
-    val frosted = frosting.navBar && supportsRealBlur
+    // 迷你播放器和导航栏是一组底部控件，共用同一个开关；
+    // 同样只在悬浮样式下才模糊（贴底时是实心栏）
+    // 注意：这里不判断强度是否为 0 —— 强度 0 时也要走「磨砂态」，
+    // 那样底色是透明的，栏就是全透明（只是不模糊），符合「0 = 全透明」的预期
+    val frosted = frosting.navBar && floating && rememberGlassSupported()
     val tint = bottomBarTint(frosted = frosted, floating = floating)
+    // 玻璃上的文字颜色跟着深浅色走（深色主题用白，浅色主题用主题前景色）
+    val onGlassDark = isDarkTheme()
+    val titleColor = if (frosted) Color.White else MaterialTheme.colorScheme.onSurface
+    val subColor = if (frosted) Color.White.copy(alpha = 0.62f)
+    else MaterialTheme.colorScheme.onSurfaceVariant
     val shape = if (floating) RoundedCornerShape(20.dp) else RectangleShape
+    // 强度 0 = 全透明：阴影和描边都不画
+    val panelVisible = !(frosted && blurRadiusDp <= 0f)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
+            .then(
+                if (floating && panelVisible) Modifier.shadow(elevation = 12.dp, shape = shape)
+                else Modifier
+            )
             .clip(shape)
+            // 描边始终保留：即使强度 0 也要有轮廓，否则面板边界完全消失
+            .then(
+                if (frosted) Modifier.border(0.8.dp, glassBorderColor(), shape)
+                else Modifier
+            )
     ) {
-        // 同 TabBar：悬浮态用半透明底让列表透出来，贴底态用背景模糊
-        if (frosted && supportsRealBlur && !floating) {
-            FrostedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                radius = 30.dp,
-                tint = tint
-            )
-        } else {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(tint)
-            )
-        }
+        // 同 TabBar：底色画在栏本体，这里只负责模糊
+        FrostedContentBackdrop(
+            layer = blurLayer,
+            // 必须 matchParentSize：fillMaxSize 会把栏撑成整屏
+            modifier = Modifier.matchParentSize(),
+            tint = tint,
+            radius = if (frosted) blurRadiusDp.dp else 0.dp
+        )
 
         Column {
             // 细进度条，给出播放进度的直观反馈
@@ -976,13 +1131,14 @@ private fun MiniPlayerBar(
                             text = song.name,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
+                            color = titleColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = song.artist,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = subColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -990,6 +1146,9 @@ private fun MiniPlayerBar(
                     Spacer(Modifier.width(8.dp))
                 }
 
+                CompositionLocalProvider(
+                    LocalContentColor provides titleColor
+                ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -1010,6 +1169,7 @@ private fun MiniPlayerBar(
                             contentDescription = "播放队列"
                         )
                     }
+                }
                 }
             }
         }
