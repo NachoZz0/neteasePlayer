@@ -378,6 +378,10 @@ private fun MusicApp(
         // ---- 全局背景：主题底色 + 30% 透明度的插画
         AppBackground()
 
+        // 内容层：每帧把内容录进这个图层，底部悬浮栏再拿它做「背景模糊」。
+        // 这样模糊的是真实的列表内容，而不是一张背景图。
+
+
         // 内容铺满整屏 —— 底部悬浮条必须叠在它上面，才真的「浮」起来。
         // 之前把底部条放在 Column 里当兄弟节点，内容到它上方就截止了，
         // 后面根本没有东西可透，看起来自然像贴了一块实心色块。
@@ -577,6 +581,7 @@ private fun MusicApp(
                     ) {
                         MiniPlayerBar(
                             floating = appearance.floatingNavBar,
+
                             state = state,
                             progressFlow = controller.progress,
                             onExpand = { showPlayer = true },
@@ -588,6 +593,7 @@ private fun MusicApp(
 
                     TabBar(
                         floating = appearance.floatingNavBar,
+
                         selectedIndex = selectedTab,
                         onSelect = { index -> selectedTab = index }
                     )
@@ -803,9 +809,8 @@ private fun TabBar(
             .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
             .clip(shape)
     ) {
-        // 只有「贴底」才画模糊背景层。悬浮态必须留空 —— FrostedBackdrop 会自己
-        // 铺一层「模糊后的背景」，把后面的列表整个盖住，那就不是悬浮而是贴在色块上了。
-        if (frosted && !floating) {
+        if (frosted && supportsRealBlur && !floating) {
+            // 贴底样式用背景图模糊，让整条栏更「实」
             FrostedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = 30.dp,
@@ -914,8 +919,8 @@ private fun MiniPlayerBar(
             .then(if (floating) Modifier.shadow(elevation = 12.dp, shape = shape) else Modifier)
             .clip(shape)
     ) {
-        // 同 TabBar：悬浮态不铺背景层，让列表从卡片底下透出来
-        if (frosted && !floating) {
+        // 同 TabBar：悬浮态用半透明底让列表透出来，贴底态用背景模糊
+        if (frosted && supportsRealBlur && !floating) {
             FrostedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = 30.dp,
