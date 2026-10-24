@@ -66,7 +66,7 @@ class UpdateApi(
 
     companion object {
         const val OWNER = "NachoZz0"
-        const val REPO = "MetingMusicPlayer"
+        const val REPO = "neteasePlayer"
         const val API_BASE = "https://api.github.com"
 
         /** 当前版本号（来自 PackageManager，和 release tag 同一个格式）。 */
