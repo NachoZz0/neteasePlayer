@@ -472,25 +472,7 @@ fun PlaylistImportScreen(
                 SavedPlaylistRow(
                     playlist = playlist,
                     refreshing = state.refreshing && state.playlistId == playlist.playlistId,
-                    selectionMode = selectionMode,
-                    selected = playlist.playlistId in validSelected,
-                    onOpen = {
-                        if (selectionMode) {
-                            selectedIds = if (playlist.playlistId in validSelected) {
-                                selectedIds - playlist.playlistId
-                            } else {
-                                selectedIds + playlist.playlistId
-                            }
-                        } else {
-                            onOpenSaved(playlist.playlistId)
-                        }
-                    },
-                    onLongPress = {
-                        if (!selectionMode) {
-                            selectionMode = true
-                            selectedIds = setOf(playlist.playlistId)
-                        }
-                    },
+                    onOpen = { onOpenSaved(playlist.playlistId) },
                     onRefresh = { onRefresh(playlist.playlistId) },
                     onDelete = { onDeleteSaved(playlist.playlistId) }
                 )
@@ -632,10 +614,7 @@ private fun SongDownloadButton(
 private fun SavedPlaylistRow(
     playlist: SavedPlaylist,
     refreshing: Boolean,
-    selectionMode: Boolean,
-    selected: Boolean,
     onOpen: () -> Unit,
-    onLongPress: () -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -646,25 +625,11 @@ private fun SavedPlaylistRow(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
             .glassCard()
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                else androidx.compose.ui.graphics.Color.Transparent
-            )
-            .longPressableNoRipple(onClick = onOpen, onLongClick = onLongPress)
+            .clickableNoRipple(onClick = onOpen)
             .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (selectionMode) {
-            Icon(
-                imageVector = if (selected) Icons.Default.CheckCircle
-                else Icons.Default.RadioButtonUnchecked,
-                contentDescription = if (selected) "已选中" else "未选中",
-                tint = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(22.dp)
-            )
-        }
         // 封面：默认取歌单第一首歌的图；没有就退回一个占位图标
         Box(
             modifier = Modifier
@@ -709,8 +674,6 @@ private fun SavedPlaylistRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        // 多选模式下收起单行操作按钮，避免误触
-        if (!selectionMode) {
             IconButton(onClick = onRefresh, enabled = !refreshing) {
                 if (refreshing) {
                     CircularProgressIndicator(
@@ -735,11 +698,10 @@ private fun SavedPlaylistRow(
                     modifier = Modifier.size(20.dp)
                 )
             }
-        }
     }
     HorizontalDivider(
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-        modifier = Modifier.padding(start = if (selectionMode) 92.dp else 76.dp)
+        modifier = Modifier.padding(start = 76.dp)
     )
 
     if (confirming) {
