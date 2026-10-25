@@ -389,25 +389,6 @@ private fun MusicApp(
         pendingTxtExport = null
     }
 
-    // 从 txt 导入歌单：解析后逐首搜索换成可播放的歌曲
-    val importPlaylistFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.reader(Charsets.UTF_8).readText()
-                } ?: error("读不到文件内容")
-            }.onSuccess { text ->
-                val fallback = uri.lastPathSegment
-                    ?.substringAfterLast('/')
-                    ?.substringBeforeLast('.')
-                    ?: "导入的歌单"
-                searchViewModel.importPlaylistFromText(text, fallback) { toast(it) }
-            }.onFailure { toast("读取失败：${it.message}") }
-        }
-    }
-
     val cyclePlayMode: () -> Unit = {
         val mode = controller.cyclePlayMode()
         toast(mode.label, mode.icon)
@@ -510,9 +491,6 @@ private fun MusicApp(
                         onCreatePlaylist = { name ->
                             toast(searchViewModel.createPlaylist(name))
                         },
-                        onImportFromFile = {
-                            importPlaylistFileLauncher.launch(arrayOf("text/plain"))
-                        },
                         onBack = { searchViewModel.clearImportedPlaylist() },
                         onPlaySong = { index ->
                             controller.playAll(importState.songs, index)
@@ -538,17 +516,6 @@ private fun MusicApp(
                             val pid = importState.playlistId
                             if (pid != null) {
                                 toast(searchViewModel.removeSongFromPlaylist(pid, song.id))
-                            }
-                        },
-                        onDeleteSongs = { songs ->
-                            val pid = importState.playlistId
-                            if (pid != null && songs.isNotEmpty()) {
-                                toast(
-                                    searchViewModel.removeSongsFromPlaylist(
-                                        pid,
-                                        songs.map { it.id }
-                                    )
-                                )
                             }
                         },
                         downloads = downloads,

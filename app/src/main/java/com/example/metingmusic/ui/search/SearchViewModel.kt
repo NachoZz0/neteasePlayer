@@ -352,56 +352,6 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         return "已从「${updated.name}」移除 ${songIds.size} 首"
     }
 
-    /**
-     * 从 txt 文件导入歌单。
-     *
-     * 文件格式就是「导出歌单」生成的：首行歌单名，之后每行 `序号. 歌名 - 作者`。
-     * 解析出来的每一首都要**走一次搜索**换成真正可播放的歌曲 —— 纯文本没有音源，
-     * 直接塞进歌单只会得到一堆点不开的条目。
-     *
-     * 逐首串行搜索是刻意的：并发几十个请求容易被音源限流。
-     */
-    fun importPlaylistFromText(raw: String, fallbackName: String, onDone: (String) -> Unit) {
-        viewModelScope.launch {
-            val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-            if (lines.isEmpty()) {
-                onDone("文件是空的")
-                return@launch
-            }
-
-            val entries = lines.mapNotNull { line ->
-                // 去掉行首的「01. 」「1、」这类序号
-                val body = line.replace(Regex("^[0-9]+[.、)]\\s*"), "").trim()
-                if (body.isEmpty() || body.startsWith("共 ")) return@mapNotNull null
-                val parts = body.split(" - ", limit = 2)
-                val songName = parts[0].trim()
-                val artist = parts.getOrNull(1)?.trim().orEmpty()
-                if (songName.isEmpty()) null else songName to artist
-            }
-            if (entries.isEmpty()) {
-                onDone("没识别到歌曲，格式应为「歌名 - 作者」")
-                return@launch
-            }
-
-            val name = lines.first().takeIf { it != entries.first().first } ?: fallbackName
-            val playlistId = importedStore.create(name)
-            if (playlistId == null) {
-                onDone("创建歌单失败")
-                return@launch
-            }
-
-            val found = mutableListOf<Song>()
-            entries.forEach { (songName, artist) ->
-                val keyword = if (artist.isBlank()) songName else "$songName $artist"
-                repository.search(keyword, _state.value.server, limit = 5)
-                    .onSuccess { list -> list.firstOrNull()?.let { found += it } }
-            }
-            importedStore.addSongs(playlistId, found)
-            openSavedPlaylist(playlistId)
-            onDone("已导入 ${found.size}/${entries.size} 首到「$name」")
-        }
-    }
-
     fun clearImportedPlaylist() {
         _playlistState.update {
             ImportedPlaylistUiState(input = it.input, nameInput = it.nameInput)
