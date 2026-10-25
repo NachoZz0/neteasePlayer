@@ -739,6 +739,9 @@ class PlayerController(private val context: Context) {
     // ------------------------------------------------------------ 下载
 
     /** 下载当前播放的歌曲。 */
+    /** 已下载歌曲的本地文件绝对路径；没下载过返回 null。供「分享音频文件」用。 */
+    fun localAudioPath(songId: String): String? = downloadManager.localPathOf(songId)
+
     fun downloadCurrent() {
         val song = _state.value.currentSong ?: return
         download(song)

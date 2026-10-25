@@ -71,6 +71,13 @@ import com.example.metingmusic.player.PlayerUiState
 import com.example.metingmusic.ui.theme.AppBackground
 import com.example.metingmusic.ui.theme.clickableNoRipple
 import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import com.example.metingmusic.ui.theme.LocalAppearance
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.blur
 
 /**
  * 全屏播放页：以歌词为主视觉，控制区固定在底部。
@@ -127,6 +134,7 @@ fun PlayerScreen(
                 )
         )
 
+
         Column(modifier = Modifier.fillMaxSize()) {
             // ---- 顶栏（状态栏避让，否则会被时间和状态图标盖住）
             TopBar(
@@ -156,7 +164,11 @@ fun PlayerScreen(
             if (song != null) {
                 BottomControls(
                     state = state,
-                    durationMs = progress.durationMs,
+                    // 还没开始播放时播放器拿不到时长（duration=0），
+                    // 退而用歌词最后一句的时间戳 + 4s 兜底，进度条就不会是空的一条
+                    durationMs = progress.durationMs.takeIf { it > 0L }
+                        ?: state.lyrics.lastOrNull()?.timeMs?.plus(4_000L)
+                        ?: 0L,
                     songName = song.name,
                     artist = song.artist,
                     sliderPosition = sliderPosition,
@@ -229,20 +241,31 @@ private fun TopBar(
         IconButton(onClick = onBack) {
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = "收起")
         }
+        // 封面 + 歌名：顶栏也能看到是哪首歌，不用靠歌词区猜
+        AsyncImage(
+            model = state.currentSong?.pic,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        )
+        Spacer(Modifier.width(10.dp))
         Column(
             modifier = Modifier.weight(1f),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.Start
         ) {
             Text(
                 text = state.currentSong?.name ?: "正在播放",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = state.currentSong?.artist.orEmpty(),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -351,11 +374,14 @@ private fun LyricsView(
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
-                    .copy(alpha = (0.32f + 0.5f * focus).coerceAtMost(0.9f)),
-                textAlign = TextAlign.Center,
+                    // 离当前行越远越淡：0.22 → 0.84，形成纵向的景深梯度
+                    .copy(alpha = (0.22f + 0.62f * focus).coerceAtMost(0.84f)),
+                textAlign = TextAlign.Start,
                 lineHeight = 30.sp,
                 modifier = Modifier
                     .fillMaxWidth()
+                    // 景深：远处的歌词轻微失焦，当前行保持锐利
+                    .blur(if (isCurrent) 0.dp else ((1f - focus) * 1.8f).dp)
                     .clickableNoRipple { onSeek(line.timeMs) }
                     .padding(vertical = 2.dp)
             )
@@ -379,16 +405,34 @@ private fun BottomControls(
     onOpenQueue: () -> Unit,
     onOpenMenu: () -> Unit
 ) {
+    val immersive = LocalAppearance.current.playerImmersive
+    val panelShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    // 顶部快速过渡到不透明：歌词滚到底部时不会和歌名糊在一起
-                    0f to Color.Transparent,
-                    0.18f to MaterialTheme.colorScheme.background.copy(alpha = 0.82f),
-                    1f to MaterialTheme.colorScheme.background.copy(alpha = 0.94f)
-                )
+            .then(
+                if (immersive) {
+                    // 沉浸式：控制区收成一块圆角玻璃面板，和底部栏的语言统一
+                    Modifier
+                        .padding(horizontal = 8.dp)
+                        .clip(panelShape)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.74f))
+                        .border(
+                            width = 0.8.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                            shape = panelShape
+                        )
+                } else {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            // 顶部快速过渡到不透明：歌词滚到底部时不会和歌名糊在一起
+                            0f to Color.Transparent,
+                            0.18f to MaterialTheme.colorScheme.background.copy(alpha = 0.82f),
+                            1f to MaterialTheme.colorScheme.background.copy(alpha = 0.94f)
+                        )
+                    )
+                }
             )
             // 底部手势条避让，否则控制按钮会贴到系统导航条上。
             // 再额外留 12dp 把整块控制区抬离屏幕底边，缓解「挤在底部」的观感。

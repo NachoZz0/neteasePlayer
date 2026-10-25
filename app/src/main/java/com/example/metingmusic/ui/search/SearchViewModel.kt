@@ -322,6 +322,86 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 退出歌单详情，回到导入界面。 */
+    /**
+     * 从歌单里移除一首歌。
+     *
+     * 直接改本地记录，不去动网易云的源歌单 —— 用户在这里的增删是「本地歌单」的概念，
+     * 想同步回源歌单得去网易云操作。移除后立刻刷新当前详情页，不用退出重进。
+     */
+    fun removeSongFromPlaylist(playlistId: String, songId: String): String =
+        removeSongsFromPlaylist(playlistId, listOf(songId))
+
+    /** 批量移除（多选删除）。只刷新一次列表，避免删十首刷十次。 */
+    fun removeSongsFromPlaylist(playlistId: String, songIds: Collection<String>): String {
+        songIds.forEach { importedStore.removeSong(playlistId, it) }
+        val updated = importedStore.get(playlistId)
+        if (updated == null) {
+            // 歌单被删空了就回到列表页，避免停在一个不存在的详情页上
+            clearImportedPlaylist()
+            return "已移除 ${songIds.size} 首，歌单已空"
+        }
+        _playlistState.update {
+            it.copy(
+                playlistId = updated.playlistId,
+                name = updated.name,
+                songs = updated.songs,
+                saved = true,
+                error = null
+            )
+        }
+        return "已从「${updated.name}」移除 ${songIds.size} 首"
+    }
+
+    /**
+     * 从 txt 文件导入歌单。
+     *
+     * 文件格式就是「导出歌单」生成的：首行歌单名，之后每行 `序号. 歌名 - 作者`。
+     * 解析出来的每一首都要**走一次搜索**换成真正可播放的歌曲 —— 纯文本没有音源，
+     * 直接塞进歌单只会得到一堆点不开的条目。
+     *
+     * 逐首串行搜索是刻意的：并发几十个请求容易被音源限流。
+     */
+    fun importPlaylistFromText(raw: String, fallbackName: String, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+            if (lines.isEmpty()) {
+                onDone("文件是空的")
+                return@launch
+            }
+
+            val entries = lines.mapNotNull { line ->
+                // 去掉行首的「01. 」「1、」这类序号
+                val body = line.replace(Regex("^[0-9]+[.、)]\\s*"), "").trim()
+                if (body.isEmpty() || body.startsWith("共 ")) return@mapNotNull null
+                val parts = body.split(" - ", limit = 2)
+                val songName = parts[0].trim()
+                val artist = parts.getOrNull(1)?.trim().orEmpty()
+                if (songName.isEmpty()) null else songName to artist
+            }
+            if (entries.isEmpty()) {
+                onDone("没识别到歌曲，格式应为「歌名 - 作者」")
+                return@launch
+            }
+
+            val name = lines.first().takeIf { it != entries.first().first } ?: fallbackName
+            val playlistId = importedStore.create(name)
+            if (playlistId == null) {
+                onDone("创建歌单失败")
+                return@launch
+            }
+
+            val found = mutableListOf<Song>()
+            entries.forEach { (songName, artist) ->
+                val keyword = if (artist.isBlank()) songName else "$songName $artist"
+                repository.search(keyword, _state.value.server, limit = 5)
+                    .onSuccess { list -> list.firstOrNull()?.let { found += it } }
+            }
+            importedStore.addSongs(playlistId, found)
+            openSavedPlaylist(playlistId)
+            onDone("已导入 ${found.size}/${entries.size} 首到「$name」")
+        }
+    }
+
     fun clearImportedPlaylist() {
         _playlistState.update {
             ImportedPlaylistUiState(input = it.input, nameInput = it.nameInput)

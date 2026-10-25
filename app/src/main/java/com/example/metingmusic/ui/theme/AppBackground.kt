@@ -35,10 +35,9 @@ fun AppBackground(modifier: Modifier = Modifier) {
         BackgroundImage.load(appearance.backgroundPath)?.toImage()
     }
 
-    // 全局模糊只糊这一层背景 —— 卡片、按钮再各自半透明，
-    // 一屏几十个元素也只有一个模糊层，不会掉帧
-    val blurModifier = if (appearance.globalBlur && supportsRealBlur) {
-        Modifier.blur(36.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+    // 背景模糊由「背景设置」里的滑杆单独控制，和「全局磨砂质感」互不影响
+    val blurModifier = if (appearance.bgBlurDp > 0f && supportsRealBlur) {
+        Modifier.blur(appearance.bgBlurDp.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
     } else {
         Modifier
     }
@@ -53,6 +52,7 @@ fun AppBackground(modifier: Modifier = Modifier) {
                 bitmap = custom,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                alpha = appearance.bgAlpha,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(blurModifier)
@@ -75,7 +75,7 @@ fun AppBackground(modifier: Modifier = Modifier) {
                 painter = painterResource(R.drawable.app_bg),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                alpha = if (appearance.globalBlur) 0.42f else 0.3f,
+                alpha = 0.3f * appearance.bgAlpha,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(blurModifier)

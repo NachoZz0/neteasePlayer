@@ -148,6 +148,7 @@ import androidx.compose.ui.graphics.luminance
 import com.example.metingmusic.ui.theme.rememberGlassSupported
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.border
+import androidx.core.content.FileProvider
 
 class MainActivity : ComponentActivity() {
 
@@ -356,6 +357,7 @@ private fun MusicApp(
 
     val clipboard = LocalClipboardManager.current
 
+
     // 播放模式提示。
     // 原先用 SnackbarHostState.showSnackbar()，但它是挂起函数、要等上一条播完，
     // 连点几次按钮时提示会排队缓慢冒出。改成自增 id 的自替换浮层，
@@ -365,6 +367,45 @@ private fun MusicApp(
 
     fun toast(text: String, icon: ImageVector? = null) {
         modeToast = ToastMessage(id = ++toastSeq, text = text, icon = icon)
+    }
+
+    // 导出歌单 txt：交给系统文件选择器决定存哪，不写死到某个目录
+    var pendingTxtExport by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val saveTxtLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val payload = pendingTxtExport
+        if (uri != null && payload != null) {
+            runCatching {
+                val out = context.contentResolver.openOutputStream(uri)
+                    ?: error("无法写入所选位置")
+                out.use { it.write(payload.second.toByteArray(Charsets.UTF_8)) }
+            }.onSuccess {
+                toast("已保存 ${payload.first}")
+            }.onFailure {
+                toast("保存失败：${it.message}")
+            }
+        }
+        pendingTxtExport = null
+    }
+
+    // 从 txt 导入歌单：解析后逐首搜索换成可播放的歌曲
+    val importPlaylistFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.reader(Charsets.UTF_8).readText()
+                } ?: error("读不到文件内容")
+            }.onSuccess { text ->
+                val fallback = uri.lastPathSegment
+                    ?.substringAfterLast('/')
+                    ?.substringBeforeLast('.')
+                    ?: "导入的歌单"
+                searchViewModel.importPlaylistFromText(text, fallback) { toast(it) }
+            }.onFailure { toast("读取失败：${it.message}") }
+        }
     }
 
     val cyclePlayMode: () -> Unit = {
@@ -469,6 +510,9 @@ private fun MusicApp(
                         onCreatePlaylist = { name ->
                             toast(searchViewModel.createPlaylist(name))
                         },
+                        onImportFromFile = {
+                            importPlaylistFileLauncher.launch(arrayOf("text/plain"))
+                        },
                         onBack = { searchViewModel.clearImportedPlaylist() },
                         onPlaySong = { index ->
                             controller.playAll(importState.songs, index)
@@ -489,6 +533,23 @@ private fun MusicApp(
                         },
                         onShare = { playlistId ->
                             sharingPlaylist = savedPlaylists.firstOrNull { it.playlistId == playlistId }
+                        },
+                        onDeleteSong = { song ->
+                            val pid = importState.playlistId
+                            if (pid != null) {
+                                toast(searchViewModel.removeSongFromPlaylist(pid, song.id))
+                            }
+                        },
+                        onDeleteSongs = { songs ->
+                            val pid = importState.playlistId
+                            if (pid != null && songs.isNotEmpty()) {
+                                toast(
+                                    searchViewModel.removeSongsFromPlaylist(
+                                        pid,
+                                        songs.map { it.id }
+                                    )
+                                )
+                            }
                         },
                         downloads = downloads,
                         onDownloadSong = { song ->
@@ -577,6 +638,15 @@ private fun MusicApp(
                         },
                         onFloatingNavBarChange = { floating ->
                             onAppearanceChange(appearance.copy(floatingNavBar = floating))
+                        },
+                        onPlayerImmersiveChange = { enabled ->
+                            onAppearanceChange(appearance.copy(playerImmersive = enabled))
+                        },
+                        onBackgroundBlurChange = { value ->
+                            onAppearanceChange(appearance.copy(bgBlurDp = value))
+                        },
+                        onBackgroundAlphaChange = { value ->
+                            onAppearanceChange(appearance.copy(bgAlpha = value))
                         },
                         updateState = updateState,
                         onCheckUpdate = { checkUpdate(silent = false) },
@@ -796,6 +866,32 @@ private fun MusicApp(
             onCyclePlayMode = cyclePlayMode,
             onSelectBitrate = controller::setBitrate,
             onDownload = controller::downloadCurrent,
+            onShareSong = {
+                val song = state.currentSong
+                val path = song?.let { controller.localAudioPath(it.id) }
+                if (song == null || path == null) {
+                    toast("这首歌还没下载，先下载才能分享文件")
+                } else {
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            File(path)
+                        )
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "audio/*"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, song.name)
+                            putExtra(Intent.EXTRA_TEXT, "${song.name} - ${song.artist}")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(
+                            Intent.createChooser(send, "分享「${song.name}」")
+                        )
+                    }.onFailure { toast("分享失败：${it.message}") }
+                }
+                showMenu = false
+            },
             onOpenSleepTimer = {
                 showMenu = false
                 showSleepTimer = true
@@ -824,10 +920,14 @@ private fun MusicApp(
     sharingPlaylist?.let { playlist ->
         SharePlaylistDialog(
             playlist = playlist,
+            onSave = { fileName, content ->
+                pendingTxtExport = fileName to content
+                saveTxtLauncher.launch(fileName)
+            },
             onCopy = { text ->
                 clipboard.setText(AnnotatedString(text))
                 sharingPlaylist = null
-                toast("分享文本已复制")
+                toast("歌单文本已复制")
             },
             onDismiss = { sharingPlaylist = null }
         )

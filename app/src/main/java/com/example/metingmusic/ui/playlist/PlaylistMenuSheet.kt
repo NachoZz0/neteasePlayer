@@ -42,6 +42,7 @@ import com.example.metingmusic.ui.theme.clickableNoRipple
 @Composable
 fun PlaylistMenuSheet(
     playlistName: String,
+    isLocal: Boolean,
     songCount: Int,
     refreshing: Boolean,
     onShare: () -> Unit,
@@ -82,8 +83,12 @@ fun PlaylistMenuSheet(
 
             PlaylistMenuRow(
                 icon = Icons.Default.Share,
-                title = "分享歌单",
-                subtitle = "生成网易云格式的分享文案，可复制",
+                title = if (isLocal) "导出歌单" else "分享歌单",
+                subtitle = if (isLocal) {
+                    "本地歌单没有歌单号，导出成 txt（歌名 + 作者）"
+                } else {
+                    "生成网易云格式的文案，对方粘回来就能导入"
+                },
                 onClick = {
                     onDismiss()
                     onShare()

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +58,7 @@ fun PlayerMenuSheet(
     onCyclePlayMode: () -> Unit,
     onSelectBitrate: (Int) -> Unit,
     onDownload: () -> Unit,
+    onShareSong: () -> Unit,
     onOpenSleepTimer: () -> Unit,
     onOpenQueue: () -> Unit,
     onDismiss: () -> Unit
@@ -158,6 +160,19 @@ fun PlayerMenuSheet(
                 accent = state.isCurrentDownloaded,
                 enabled = song != null,
                 onClick = onDownload
+            )
+
+            // ---- 分享音频文件
+            MenuRow(
+                icon = Icons.Default.Share,
+                title = "分享音频文件",
+                subtitle = if (song != null && state.isCurrentDownloaded) {
+                    "把本地 mp3 文件发送到其他应用"
+                } else {
+                    "需要先下载这首歌，才能分享文件"
+                },
+                enabled = song != null && state.isCurrentDownloaded,
+                onClick = onShareSong
             )
 
             // ---- 定时播放

@@ -34,15 +34,27 @@ data class Appearance(
      */
     @SerializedName("navBarFrosted") val bottomFrosted: Boolean = false,
     /**
-     * 全局模糊。
+     * 全局磨砂质感。
      *
-     * 开启后背景本身会被模糊掉，同时歌曲卡片、歌单行、主要按钮都变成半透明的「玻璃」。
+     * 开启后歌曲卡片、歌单行、主要按钮变成半透明的「玻璃」。
      *
-     * 实现上**只模糊一次背景**，而不是给每个卡片单独做模糊 ——
-     * 一屏可能有二三十个卡片，每个都建一个全屏模糊层会直接卡死。
-     * 背景糊掉之后，卡片只要半透明就已经是磨砂玻璃的观感了。
+     * ⚠️ 它**不再模糊背景**：背景的模糊由 [bgBlurDp] 单独控制。
+     * 两者分开是因为「我想让卡片有磨砂感」和「我想让背景糊一点」是两件事，
+     * 绑在一起会逼用户二选一。
      */
     @SerializedName("globalBlur") val globalBlur: Boolean = false,
+    /** 背景图模糊度（dp）。0 = 不模糊。 */
+    @SerializedName("bgBlurDp") val bgBlurDp: Float = 0f,
+    /** 背景图不透明度。1 = 完全不透明。 */
+    @SerializedName("bgAlpha") val bgAlpha: Float = 1f,
+    /**
+     * 播放页沉浸式视觉。
+     *
+     * 开启后：背景叠一层主题色光晕，底部控制区变成圆角玻璃面板。
+     * 默认开启 —— 这是纯视觉增强，不影响功能，没有关掉的理由；
+     * 留开关是给「不喜欢花哨」的人一个退路。
+     */
+    @SerializedName("playerImmersive") val playerImmersive: Boolean = true,
     /**
      * 底部栏背景模糊的强度（dp）。
      *
