@@ -72,6 +72,7 @@ import com.example.metingmusic.ui.search.SearchViewModel
 import com.example.metingmusic.ui.theme.clickableNoRipple
 import com.example.metingmusic.ui.theme.longPressableNoRipple
 import com.example.metingmusic.ui.theme.glassCard
+import androidx.activity.compose.BackHandler
 
 /**
  * 「下载」页：列出已下载到本地的歌曲。
@@ -143,6 +144,12 @@ fun DownloadScreen(
     val allSelected = library.songs.isNotEmpty() && validSelected.size == library.songs.size
 
     // 全部删完自动退出多选，否则会停在一个空的「已选 0 首」界面上
+    // 手势返回：多选时先退出多选，而不是直接退出应用
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedIds = emptySet()
+    }
+
     LaunchedEffect(selectionMode, library.songs.size) {
         if (selectionMode && library.songs.isEmpty()) {
             selectionMode = false

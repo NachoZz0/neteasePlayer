@@ -2,6 +2,7 @@ package com.example.metingmusic.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -139,6 +140,11 @@ fun SettingsScreen(
     }
 
     var page by remember { mutableStateOf(SettingsPage.Main) }
+
+    // 手势返回：在二级页时先退回一级，而不是直接退出应用
+    BackHandler(enabled = page != SettingsPage.Main) {
+        page = SettingsPage.Main
+    }
 
     AnimatedContent(
         targetState = page,

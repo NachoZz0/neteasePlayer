@@ -88,6 +88,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.activity.compose.BackHandler
 
 /**
  * 网易云歌单导入页。
@@ -151,6 +152,11 @@ fun PlaylistImportScreen(
     // null = 停在「选入口」这一层；选了具体方式才展开表单（二级菜单）
     var formMode by remember { mutableStateOf<AddMode?>(null) }
     var newPlaylistName by remember { mutableStateOf("") }
+
+    // 手势返回：表单展开时先退回「选入口」那一层
+    BackHandler(enabled = !state.hasResult && formMode != null) {
+        formMode = null
+    }
 
     // ---- 「我的导入」多选模式
     var selectionMode by remember { mutableStateOf(false) }
@@ -801,6 +807,17 @@ private fun ImportedPlaylistDetail(
     // 长按进入多选
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // 手势返回的优先级：先关确认弹窗，再退多选，最后才退出详情
+    BackHandler(enabled = pendingDelete != null || selectionMode) {
+        when {
+            pendingDelete != null -> pendingDelete = null
+            else -> {
+                selectionMode = false
+                selectedIds = emptySet()
+            }
+        }
+    }
 
     // 退出时也放一遍动画再真正返回 —— 之前只有进场动画，点返回是硬切
     val scope = rememberCoroutineScope()
