@@ -12,6 +12,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.example.metingmusic.MainActivity
 import com.example.metingmusic.data.remote.MetingApi
+import com.example.metingmusic.data.local.AppearanceStore
 
 /**
  * 前台播放服务，承载 ExoPlayer 实例与 MediaSession。
@@ -51,6 +52,13 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlayerError(error: PlaybackException) {
             val player = mediaSession?.player ?: return
+
+            // 设置里关掉「失败自动下一首」就停下，把错误留给界面显示
+            if (!AppearanceStore.get(this@PlaybackService).load().skipOnError) {
+                player.pause()
+                return
+            }
+
             consecutiveErrors++
 
             // 只有一首，或连续失败太多：认了，停下

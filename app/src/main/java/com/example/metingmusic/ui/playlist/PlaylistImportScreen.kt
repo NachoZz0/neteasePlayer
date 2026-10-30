@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -89,6 +90,20 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 /**
  * 网易云歌单导入页。
@@ -109,6 +124,8 @@ fun PlaylistImportScreen(
     onBack: () -> Unit,
     onPlaySong: (Int) -> Unit,
     onOpenSaved: (String) -> Unit,
+    /** 点封面直接播放这张歌单（随机一首起）。 */
+    onPlaySaved: (SavedPlaylist) -> Unit,
     onDeleteSaved: (String) -> Unit,
     onDeleteSavedMany: (List<String>) -> Unit,
     onRefresh: (String) -> Unit,
@@ -116,6 +133,8 @@ fun PlaylistImportScreen(
     onShare: (String) -> Unit,
     /** 从歌单里移除一首歌。 */
     onDeleteSong: (Song) -> Unit,
+    /** 多选删除。 */
+    onDeleteSongs: (List<Song>) -> Unit,
     /** 下载库，用来在每首歌右侧显示下载状态。 */
     downloads: DownloadLibrary,
     onDownloadSong: (Song) -> Unit,
@@ -135,6 +154,7 @@ fun PlaylistImportScreen(
             onDownloadAll = onDownloadAll,
             onShare = onShare,
             onDeleteSong = onDeleteSong,
+            onDeleteSongs = onDeleteSongs,
             downloads = downloads,
             onDownloadSong = onDownloadSong,
             onCancelDownload = onCancelDownload,
@@ -287,6 +307,11 @@ fun PlaylistImportScreen(
             // formMode 为 null 表示还停在「选入口」那一层，也不显示表单
             if (!selectionMode && formMode != null) {
                 item {
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = expandVertically(tween(240)) + fadeIn(tween(200)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(120))
+                    ) {
                     Column {
                         if (formMode == AddMode.CREATE) {
                             // ---- 创建：只要一个名字
@@ -452,6 +477,7 @@ fun PlaylistImportScreen(
                             )
                         }
                     }
+                    }
                 }
             } else {
                 item {
@@ -473,6 +499,7 @@ fun PlaylistImportScreen(
                     playlist = playlist,
                     refreshing = state.refreshing && state.playlistId == playlist.playlistId,
                     onOpen = { onOpenSaved(playlist.playlistId) },
+                    onPlay = { onPlaySaved(playlist) },
                     onRefresh = { onRefresh(playlist.playlistId) },
                     onDelete = { onDeleteSaved(playlist.playlistId) }
                 )
@@ -507,7 +534,7 @@ fun PlaylistImportScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "歌单会自动保存；长按列表可批量删除。",
+                            text = "歌单会自动保存；点右侧垃圾桶可以删除。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -615,6 +642,7 @@ private fun SavedPlaylistRow(
     playlist: SavedPlaylist,
     refreshing: Boolean,
     onOpen: () -> Unit,
+    onPlay: () -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -630,12 +658,14 @@ private fun SavedPlaylistRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 封面：默认取歌单第一首歌的图；没有就退回一个占位图标
+        // 封面：默认取歌单第一首歌的图；没有就退回一个占位图标。
+        // 点封面直接开播，省掉「进详情 → 再点播放」两步。
         Box(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .clickableNoRipple(onClick = onPlay),
             contentAlignment = Alignment.Center
         ) {
             val cover = playlist.displayCover
@@ -733,6 +763,7 @@ private fun ImportedPlaylistDetail(
     onDownloadAll: () -> Unit,
     onShare: (String) -> Unit,
     onDeleteSong: (Song) -> Unit,
+    onDeleteSongs: (List<Song>) -> Unit,
     downloads: DownloadLibrary,
     onDownloadSong: (Song) -> Unit,
     onCancelDownload: (String) -> Unit,
@@ -754,9 +785,22 @@ private fun ImportedPlaylistDetail(
     var showMenu by remember { mutableStateOf(false) }
     // 待确认移除的歌：先问一句，避免误触把歌从歌单里点没了
     var pendingDelete by remember { mutableStateOf<Song?>(null) }
-    // 手势返回：先关确认弹窗
-    BackHandler(enabled = pendingDelete != null) {
-        pendingDelete = null
+    // 歌单内搜索：只过滤显示，不影响播放队列
+    var query by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
+    // 长按进入多选
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // 手势返回的优先级：先关确认弹窗，再退多选
+    BackHandler(enabled = pendingDelete != null || selectionMode) {
+        when {
+            pendingDelete != null -> pendingDelete = null
+            else -> {
+                selectionMode = false
+                selectedIds = emptySet()
+            }
+        }
     }
 
     // 退出时也放一遍动画再真正返回 —— 之前只有进场动画，点返回是硬切
@@ -781,18 +825,59 @@ private fun ImportedPlaylistDetail(
                 .padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = animatedBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            IconButton(
+                onClick = {
+                    when {
+                        // 搜索态下返回键先收起搜索，而不是退出歌单
+                        showSearch -> {
+                            showSearch = false
+                            query = ""
+                        }
+                        selectionMode -> {
+                            selectionMode = false
+                            selectedIds = emptySet()
+                        }
+                        else -> animatedBack()
+                    }
+                }
+            ) {
+                Icon(
+                    if (selectionMode) Icons.Default.Close
+                    else Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = if (selectionMode) "取消多选" else "返回"
+                )
             }
-            Column(modifier = Modifier.weight(1f)) {
+            AnimatedContent(
+                targetState = showSearch,
+                transitionSpec = {
+                    (fadeIn(tween(180)) + expandHorizontally(expandFrom = Alignment.Start)) togetherWith
+                        (fadeOut(tween(120)) + shrinkHorizontally(shrinkTowards = Alignment.Start))
+                },
+                modifier = Modifier.weight(1f),
+                label = "search-swap"
+            ) { searching ->
+            if (searching) {
+                // 搜索态：输入框直接顶替标题，就在顶栏里展开
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("在 ${state.songs.size} 首里搜索") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.width(6.dp))
+            } else {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = state.name,
+                    text = if (selectionMode) "已选 ${selectedIds.size} 首" else state.name,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
+                if (!selectionMode) Text(
                     text = buildString {
                         append("${state.songs.size} 首")
                         if (saved?.isLocalPlaylist == true) {
@@ -808,7 +893,30 @@ private fun ImportedPlaylistDetail(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (saved != null) {
+            }
+            }
+            if (!showSearch) IconButton(
+                onClick = {
+                    showSearch = true
+                }
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "搜索歌单内歌曲",
+                    tint = if (showSearch) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!showSearch && selectionMode) {
+                TextButton(
+                    enabled = selectedIds.isNotEmpty(),
+                    onClick = {
+                        onDeleteSongs(state.songs.filter { it.id in selectedIds })
+                        selectionMode = false
+                        selectedIds = emptySet()
+                    }
+                ) { Text("移除", fontWeight = FontWeight.Bold) }
+            } else if (!showSearch && saved != null) {
                 // 分享 / 刷新 / 下载全部 都收进这个二级菜单
                 IconButton(onClick = { showMenu = true }) {
                     if (state.refreshing) {
@@ -835,7 +943,12 @@ private fun ImportedPlaylistDetail(
                 .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
             Button(
-                onClick = { onPlaySong(0) },
+                // 从随机一首开始，而不是永远第一首 —— 每次进来听到的都不一样
+                onClick = {
+                    if (state.songs.isNotEmpty()) {
+                        onPlaySong(state.songs.indices.random())
+                    }
+                },
                 colors = glassButtonColors(),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -845,21 +958,41 @@ private fun ImportedPlaylistDetail(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("播放全部")
+                Text("随机播放")
             }
         }
 
+
         LazyColumn(
             contentPadding = contentBottomPadding,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                // 点列表空白处收起搜索（点歌曲仍然正常播放，由行自己消费）
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    if (showSearch) {
+                        showSearch = false
+                        query = ""
+                    }
+                }
         ) {
-            // itemsIndexed + contentType：列表可能上千首，让 Compose 能按类型复用、
-            // 并且不去做「按内容找下标」这种 O(n²) 的事
-            itemsIndexed(
-                items = state.songs,
-                key = { _, song -> song.id },
-                contentType = { _, _ -> "song" }
-            ) { index, song ->
+            // 搜索结果保留原始下标：点播放要放到队列里的真实位置
+            val shown = if (query.isBlank()) {
+                state.songs.withIndex().toList()
+            } else {
+                state.songs.withIndex().filter { (_, song) ->
+                    song.name.contains(query, true) || song.artist.contains(query, true)
+                }
+            }
+            items(
+                items = shown,
+                key = { it.value.id },
+                contentType = { "song" }
+            ) { indexed ->
+                val index = indexed.index
+                val song = indexed.value
                 val task = downloads.taskOf(song.id)
                 val downloaded = task is DownloadState.Done || downloads.isDownloaded(song.id)
 
@@ -868,17 +1001,73 @@ private fun ImportedPlaylistDetail(
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                         .glassCard()
-                        .clickableNoRipple { onPlaySong(index) }
+                        .longPressableNoRipple(
+                            onClick = {
+                                if (selectionMode) {
+                                    selectedIds = if (song.id in selectedIds) {
+                                        selectedIds - song.id
+                                    } else {
+                                        selectedIds + song.id
+                                    }
+                                } else {
+                                    onPlaySong(index)
+                                }
+                            },
+                            onLongClick = {
+                                if (!selectionMode) {
+                                    selectionMode = true
+                                    selectedIds = setOf(song.id)
+                                }
+                            }
+                        )
                         .padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "${index + 1}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(24.dp)
-                    )
+                    AnimatedVisibility(
+                        visible = selectionMode,
+                        enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.6f),
+                        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.6f)
+                    ) {
+                        val checked = song.id in selectedIds
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (checked) MaterialTheme.colorScheme.primary
+                                    else Color.Transparent
+                                )
+                                .border(
+                                    width = 1.5.dp,
+                                    color = if (checked) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (checked) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = !selectionMode,
+                        enter = fadeIn(tween(160)),
+                        exit = fadeOut(tween(120))
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(24.dp)
+                        )
+                    }
                     AsyncImage(
                         model = song.pic,
                         contentDescription = null,

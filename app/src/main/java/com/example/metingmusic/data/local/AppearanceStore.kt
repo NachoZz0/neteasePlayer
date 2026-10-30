@@ -47,14 +47,20 @@ data class Appearance(
     @SerializedName("bgBlurDp") val bgBlurDp: Float = 0f,
     /** 背景图不透明度。1 = 完全不透明。 */
     @SerializedName("bgAlpha") val bgAlpha: Float = 1f,
-    /**
-     * 播放页沉浸式视觉。
-     *
-     * 开启后：背景叠一层主题色光晕，底部控制区变成圆角玻璃面板。
-     * 默认开启 —— 这是纯视觉增强，不影响功能，没有关掉的理由；
-     * 留开关是给「不喜欢花哨」的人一个退路。
-     */
-    @SerializedName("playerImmersive") val playerImmersive: Boolean = true,
+    /** 默认音质：128 / 192 / 320 / flac。 */
+    @SerializedName("audioQuality") val audioQuality: String = "320",
+    /** 下次打开同一首歌时回到上次的播放位置。 */
+    @SerializedName("keepProgress") val keepProgress: Boolean = true,
+    /** 某首歌放不出来时自动跳下一首。 */
+    @SerializedName("skipOnError") val skipOnError: Boolean = true,
+    /** 淡入淡出总开关；关掉后时长设置不生效。 */
+    @SerializedName("fadeEnabled") val fadeEnabled: Boolean = true,
+    /** 淡入时长（毫秒）。 */
+    @SerializedName("fadeInMs") val fadeInMs: Int = 200,
+    /** 淡出时长（毫秒），0 = 关闭。 */
+    @SerializedName("fadeOutMs") val fadeOutMs: Int = 200,
+    /** 歌词景深：非当前行按距离渐隐 + 轻微失焦。 */
+    @SerializedName("lyricDepth") val lyricDepth: Boolean = true,
     /**
      * 底部栏背景模糊的强度（dp）。
      *

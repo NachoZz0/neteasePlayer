@@ -149,6 +149,12 @@ import com.example.metingmusic.ui.theme.rememberGlassSupported
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.border
 import androidx.core.content.FileProvider
+import androidx.compose.ui.geometry.Offset
+import com.example.metingmusic.ui.theme.ThemeReveal
+import com.example.metingmusic.ui.theme.ThemeRevealOverlay
+import com.example.metingmusic.ui.theme.animationsEnabled
+import com.example.metingmusic.ui.theme.captureWindow
+import com.example.metingmusic.data.local.ThemeMode
 
 class MainActivity : ComponentActivity() {
 
@@ -199,7 +205,26 @@ class MainActivity : ComponentActivity() {
                 appearanceStore.save(new)
             }
 
+            // 圆形揭示：切换主题时先截旧主题的图，切完再在图上挖洞露出新主题
+            var themeReveal by remember { mutableStateOf<ThemeReveal?>(null) }
+            val switchTheme: (ThemeMode, Offset) -> Unit = { mode, center ->
+                if (mode == appearance.themeMode) {
+                    // 点的是当前选项，什么都不用做
+                } else if (!animationsEnabled(appContext)) {
+                    // 系统关掉了动画，直接切
+                    updateAppearance(appearance.copy(themeMode = mode))
+                } else {
+                    captureWindow(this@MainActivity) { bitmap ->
+                        updateAppearance(appearance.copy(themeMode = mode))
+                        if (bitmap != null) {
+                            themeReveal = ThemeReveal(bitmap, center)
+                        }
+                    }
+                }
+            }
+
             MetingMusicTheme(appearance = appearance) {
+              Box(modifier = Modifier.fillMaxSize()) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -212,11 +237,16 @@ class MainActivity : ComponentActivity() {
                             pickBackground.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
-                        }
+                        },
+                        onThemeSwitch = switchTheme
                     )
+                }
+                themeReveal?.let { r ->
+                    ThemeRevealOverlay(reveal = r, onDone = { themeReveal = null })
                 }
             }
         }
+    }
     }
 
     /** Android 13+ 展示媒体通知需要用户授权。 */
@@ -245,7 +275,9 @@ private fun MusicApp(
     appearance: Appearance,
     onAppearanceChange: (Appearance) -> Unit,
     extractedAccent: Int?,
-    onPickBackground: () -> Unit
+    onPickBackground: () -> Unit,
+    /** 切换深浅色：带上点击位置，用于圆形揭示动画。 */
+    onThemeSwitch: (ThemeMode, Offset) -> Unit
 ) {
     val context = LocalContext.current
     val controller = remember { PlayerHolder.get(context) }
@@ -264,6 +296,13 @@ private fun MusicApp(
     }
 
     val state by controller.state.collectAsStateWithLifecycle()
+
+    // 淡入淡出时长：设置一变就同步给播放器
+    LaunchedEffect(appearance.fadeEnabled, appearance.fadeInMs, appearance.fadeOutMs) {
+        // 总开关关掉时把时长归零，控制器那边就不用再判一次
+        controller.fadeInMs = if (appearance.fadeEnabled) appearance.fadeInMs else 0
+        controller.fadeOutMs = if (appearance.fadeEnabled) appearance.fadeOutMs else 0
+    }
     val importState by searchViewModel.playlistState.collectAsStateWithLifecycle()
     val savedPlaylists by searchViewModel.savedPlaylists.collectAsStateWithLifecycle()
     val downloads by controller.downloads.collectAsStateWithLifecycle()
@@ -418,13 +457,25 @@ private fun MusicApp(
         val blurLayer = rememberGraphicsLayer()
         // 录制节流：模糊层不用每帧都重录，隔帧录一次肉眼几乎看不出差别，
         // 但「整屏重绘一遍」的开销直接砍半。
-        val recordThrottle = remember { RecordThrottle(every = 2) }
+        // key 里带上模糊相关设置：任何一项变了就换一个新实例，
+        // 新实例的 hasRecorded = false → 紧接着那一帧必定录制。
+        // 比 LaunchedEffect 可靠 —— 后者和绘制的先后顺序不保证。
+        val recordThrottle = remember(
+            appearance.bottomFrosted,
+            appearance.floatingNavBar,
+            appearance.blurRadiusDp,
+            // 主题色 / 深浅色一变，底栏和迷你播放器里的模糊内容必须重录，
+            // 否则切到深色后它们还糊着浅色的旧画面
+            appearance.themeMode,
+            appearance.accentColor
+        ) { RecordThrottle(every = 2) }
         // 没开模糊（开关关了 / 强度 0 / 贴底样式）就完全不用录，省掉整屏重绘
         val blurActive = appearance.bottomFrosted &&
             appearance.floatingNavBar &&
             appearance.blurRadiusDp > 0f
         // 底部悬浮区（迷你播放器 + 胶囊 + 内边距）大约这么高，留够余量
         val blurStripPx = with(LocalDensity.current) { 360.dp.toPx() }
+
 
         // 内容铺满整屏 —— 底部悬浮条必须叠在它上面，才真的「浮」起来。
         Box(
@@ -497,6 +548,18 @@ private fun MusicApp(
                             showPlayer = true
                         },
                         onOpenSaved = searchViewModel::openSavedPlaylist,
+                        onPlaySaved = { playlist ->
+                            // 封面直接开播：从随机一首起，同时打开播放页
+                            if (playlist.songs.isEmpty()) {
+                                toast("这个歌单还没有歌")
+                            } else {
+                                controller.playAll(
+                                    playlist.songs,
+                                    playlist.songs.indices.random()
+                                )
+                                showPlayer = true
+                            }
+                        },
                         onDeleteSaved = searchViewModel::deleteSavedPlaylist,
                         onDeleteSavedMany = searchViewModel::deleteSavedPlaylists,
                         onRefresh = searchViewModel::refreshPlaylist,
@@ -516,6 +579,17 @@ private fun MusicApp(
                             val pid = importState.playlistId
                             if (pid != null) {
                                 toast(searchViewModel.removeSongFromPlaylist(pid, song.id))
+                            }
+                        },
+                        onDeleteSongs = { songs ->
+                            val pid = importState.playlistId
+                            if (pid != null && songs.isNotEmpty()) {
+                                toast(
+                                    searchViewModel.removeSongsFromPlaylist(
+                                        pid,
+                                        songs.map { it.id }
+                                    )
+                                )
                             }
                         },
                         downloads = downloads,
@@ -568,9 +642,7 @@ private fun MusicApp(
                     3 -> SettingsScreen(
                         appearance = appearance,
                         extractedAccent = extractedAccent,
-                        onThemeModeChange = { mode ->
-                            onAppearanceChange(appearance.copy(themeMode = mode))
-                        },
+                        onThemeModeChange = onThemeSwitch,
                         onPickBackground = onPickBackground,
                         onClearBackground = {
                             BackgroundImage.clear(context)
@@ -606,8 +678,26 @@ private fun MusicApp(
                         onFloatingNavBarChange = { floating ->
                             onAppearanceChange(appearance.copy(floatingNavBar = floating))
                         },
-                        onPlayerImmersiveChange = { enabled ->
-                            onAppearanceChange(appearance.copy(playerImmersive = enabled))
+                        onLyricDepthChange = { enabled ->
+                            onAppearanceChange(appearance.copy(lyricDepth = enabled))
+                        },
+                        onAudioQualityChange = { quality ->
+                            onAppearanceChange(appearance.copy(audioQuality = quality))
+                        },
+                        onKeepProgressChange = { enabled ->
+                            onAppearanceChange(appearance.copy(keepProgress = enabled))
+                        },
+                        onFadeEnabledChange = { enabled ->
+                            onAppearanceChange(appearance.copy(fadeEnabled = enabled))
+                        },
+                        onFadeInChange = { ms ->
+                            onAppearanceChange(appearance.copy(fadeInMs = ms))
+                        },
+                        onFadeOutChange = { ms ->
+                            onAppearanceChange(appearance.copy(fadeOutMs = ms))
+                        },
+                        onSkipOnErrorChange = { enabled ->
+                            onAppearanceChange(appearance.copy(skipOnError = enabled))
                         },
                         onBackgroundBlurChange = { value ->
                             onAppearanceChange(appearance.copy(bgBlurDp = value))
@@ -690,7 +780,7 @@ private fun MusicApp(
                 }
             }
 
-        // ---- 全屏歌词页
+        // ---- 全屏播放页：按设置里的样式二选一
         AnimatedVisibility(
             visible = showPlayer,
             enter = slideInVertically { it },
@@ -1010,15 +1100,30 @@ private fun TabBar(
 /** 每 [every] 帧才放行一次，用来给「每帧重录整屏」减负。 */
 private class RecordThrottle(private val every: Int = 2) {
     private var count = 0
+    private var hasRecorded = false
 
     fun allow(): Boolean {
         count++
+        // 图层还是空的（刚打开模糊 / 刚重置）时必须录，
+        // 否则这一帧被跳过，界面就停在「有面板、没内容」的状态，
+        // 直到用户再点一下触发下一次绘制才刷新。
+        if (!hasRecorded) {
+            count = 0
+            hasRecorded = true
+            return true
+        }
         return if (count >= every) {
             count = 0
             true
         } else {
             false
         }
+    }
+
+    /** 模糊开关 / 样式切换后调用，保证下一帧一定重录。 */
+    fun reset() {
+        count = 0
+        hasRecorded = false
     }
 }
 

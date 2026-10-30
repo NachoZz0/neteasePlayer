@@ -160,6 +160,32 @@ data class PlayerUiState(
 class PlayerController(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // ---- 淡入淡出：时长由设置页决定，0 表示关闭
+    var fadeInMs: Int = 200
+    var fadeOutMs: Int = 200
+    private var fadeJob: Job? = null
+
+    /** 把音量从当前值平滑推到 [target]，结束后执行 [onEnd]。 */
+    private fun fadeTo(target: Float, durationMs: Int, onEnd: (() -> Unit)? = null) {
+        val c = controller
+        fadeJob?.cancel()
+        if (c == null || durationMs <= 0) {
+            c?.volume = target
+            onEnd?.invoke()
+            return
+        }
+        fadeJob = scope.launch {
+            val from = c.volume
+            val steps = (durationMs / 16).coerceAtLeast(1)
+            for (i in 1..steps) {
+                c.volume = from + (target - from) * (i.toFloat() / steps)
+                delay(16L)
+            }
+            c.volume = target
+            onEnd?.invoke()
+        }
+    }
     private val repository = MusicRepository()
     private val downloadManager = DownloadManager.get(context)
     private val sessionStore = PlaybackSessionStore.get(context)
@@ -550,14 +576,25 @@ class PlayerController(private val context: Context) {
         // 播放列表和队列是一一对应的，直接按索引 seek 即可
         c.seekTo(index, 0L)
         c.prepare()
+        c.volume = 0f
         c.play()
+        fadeTo(1f, fadeInMs)
         loadLyrics(song)
     }
 
     fun togglePlayPause() {
         val c = controller ?: return
         when {
-            c.isPlaying -> c.pause()
+            // 淡出后再真正暂停，避免"啪"一下静音
+            c.isPlaying -> {
+                fadeTo(0f, fadeOutMs) {
+                    c.pause()
+                    // 恢复音量，否则下次播放会从静音开始
+                    c.volume = 1f
+                }
+                syncState()
+                return
+            }
             // 还没准备好任何媒体 —— 重新灌一遍当前队列
             c.playbackState == Player.STATE_IDLE -> {
                 val s = _state.value
@@ -576,7 +613,11 @@ class PlayerController(private val context: Context) {
                 c.seekTo(0)
                 c.play()
             }
-            else -> c.play()
+            else -> {
+                c.volume = 0f
+                c.play()
+                fadeTo(1f, fadeInMs)
+            }
         }
         syncState()
     }

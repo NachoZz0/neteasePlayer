@@ -70,6 +70,11 @@ import com.example.metingmusic.ui.theme.clickableNoRipple
 import com.example.metingmusic.ui.theme.glassCard
 import com.example.metingmusic.ui.theme.rememberGlassSupported
 import kotlin.math.roundToInt
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Restore
 
 /** 检查更新的界面状态。 */
 sealed interface UpdateUiState {
@@ -115,7 +120,8 @@ fun SettingsScreen(
     appearance: Appearance,
     /** 当前背景图算出来的主色；没有背景图时为 null。 */
     extractedAccent: Int?,
-    onThemeModeChange: (ThemeMode) -> Unit,
+    /** 第二个参数是点击位置（根坐标），用于圆形揭示动画的圆心。 */
+    onThemeModeChange: (ThemeMode, Offset) -> Unit,
     onPickBackground: () -> Unit,
     onClearBackground: () -> Unit,
     onAccentChange: (Int?) -> Unit,
@@ -124,7 +130,13 @@ fun SettingsScreen(
     onBottomFrostedChange: (Boolean) -> Unit,
     onBlurRadiusChange: (Float) -> Unit,
     onFloatingNavBarChange: (Boolean) -> Unit,
-    onPlayerImmersiveChange: (Boolean) -> Unit,
+    onLyricDepthChange: (Boolean) -> Unit,
+    onAudioQualityChange: (String) -> Unit,
+    onKeepProgressChange: (Boolean) -> Unit,
+    onFadeEnabledChange: (Boolean) -> Unit,
+    onFadeInChange: (Int) -> Unit,
+    onFadeOutChange: (Int) -> Unit,
+    onSkipOnErrorChange: (Boolean) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
     onBackgroundAlphaChange: (Float) -> Unit,
     updateState: UpdateUiState,
@@ -195,7 +207,13 @@ fun SettingsScreen(
 
             SettingsPage.Player -> PlayerSettingsPage(
                 appearance = appearance,
-                onPlayerImmersiveChange = onPlayerImmersiveChange,
+                onLyricDepthChange = onLyricDepthChange,
+                onAudioQualityChange = onAudioQualityChange,
+                onKeepProgressChange = onKeepProgressChange,
+                onFadeEnabledChange = onFadeEnabledChange,
+                onFadeInChange = onFadeInChange,
+                onFadeOutChange = onFadeOutChange,
+                onSkipOnErrorChange = onSkipOnErrorChange,
                 onBack = { page = SettingsPage.Main },
                 contentBottomPadding = contentBottomPadding
             )
@@ -301,7 +319,7 @@ private fun MainPage(
 private fun ThemePage(
     appearance: Appearance,
     glassSupported: Boolean,
-    onThemeModeChange: (ThemeMode) -> Unit,
+    onThemeModeChange: (ThemeMode, Offset) -> Unit,
     onGlobalBlurChange: (Boolean) -> Unit,
     onBottomFrostedChange: (Boolean) -> Unit,
     onBlurRadiusChange: (Float) -> Unit,
@@ -330,6 +348,8 @@ private fun ThemePage(
             ) {
                 ThemeMode.entries.forEach { mode ->
                     val selected = appearance.themeMode == mode
+                    // 记下这个按钮在根布局里的中心，圆形揭示就从这里扩散
+                    var chipCenter by remember { mutableStateOf(Offset.Zero) }
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -338,7 +358,8 @@ private fun ThemePage(
                                 if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                             )
-                            .clickableNoRipple { onThemeModeChange(mode) }
+                            .onGloballyPositioned { chipCenter = it.boundsInRoot().center }
+                            .clickableNoRipple { onThemeModeChange(mode, chipCenter) }
                             .padding(vertical = 9.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -422,7 +443,13 @@ private fun ThemePage(
 @Composable
 private fun PlayerSettingsPage(
     appearance: Appearance,
-    onPlayerImmersiveChange: (Boolean) -> Unit,
+    onLyricDepthChange: (Boolean) -> Unit,
+    onAudioQualityChange: (String) -> Unit,
+    onKeepProgressChange: (Boolean) -> Unit,
+    onFadeEnabledChange: (Boolean) -> Unit,
+    onFadeInChange: (Int) -> Unit,
+    onFadeOutChange: (Int) -> Unit,
+    onSkipOnErrorChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     contentBottomPadding: PaddingValues
 ) {
@@ -435,21 +462,131 @@ private fun PlayerSettingsPage(
         item { SubPageTitle(title = "播放设置", onBack = onBack) }
 
         item {
-            SectionHeader(icon = Icons.Default.PlayArrow, title = "播放页")
+            SectionHeader(icon = Icons.Default.HighQuality, title = "音质")
+            ChoiceRow(
+                options = listOf(
+                    "128" to "128K",
+                    "192" to "192K",
+                    "320" to "320K",
+                    "flac" to "FLAC"
+                ),
+                selected = appearance.audioQuality,
+                onSelect = onAudioQualityChange
+            )
+            Spacer(Modifier.height(22.dp))
+        }
+
+        item {
+            SectionHeader(icon = Icons.Default.Restore, title = "播放行为")
             SettingRow(
-                title = "沉浸式视觉",
-                subtitle = if (appearance.playerImmersive) {
-                    "底部控制区变成圆角玻璃面板"
+                title = "保留上次进度",
+                subtitle = "再打开同一首歌时接着上次的位置播"
+            ) {
+                Switch(
+                    checked = appearance.keepProgress,
+                    onCheckedChange = onKeepProgressChange
+                )
+            }
+            SettingRow(
+                title = "淡入淡出",
+                subtitle = if (appearance.fadeEnabled) {
+                    "播放/暂停/切歌时音量平滑过渡"
                 } else {
-                    "朴素的纯色控制区"
+                    "音量直接跳变"
                 }
             ) {
                 Switch(
-                    checked = appearance.playerImmersive,
-                    onCheckedChange = onPlayerImmersiveChange
+                    checked = appearance.fadeEnabled,
+                    onCheckedChange = onFadeEnabledChange
+                )
+            }
+            Text(
+                text = "淡入时长",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp)
+            )
+            ChoiceRow(
+                options = listOf("200" to "0.2s", "500" to "0.5s", "1000" to "1s"),
+                selected = appearance.fadeInMs.toString(),
+                onSelect = { onFadeInChange(it.toIntOrNull() ?: 300) }
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "淡出时长",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp)
+            )
+            ChoiceRow(
+                options = listOf("200" to "0.2s", "500" to "0.5s", "1000" to "1s"),
+                selected = appearance.fadeOutMs.toString(),
+                onSelect = { onFadeOutChange(it.toIntOrNull() ?: 300) }
+            )
+            Spacer(Modifier.height(14.dp))
+            SettingRow(
+                title = "失败自动下一首",
+                subtitle = "音源取不到时跳过，而不是停在错误上"
+            ) {
+                Switch(
+                    checked = appearance.skipOnError,
+                    onCheckedChange = onSkipOnErrorChange
                 )
             }
             Spacer(Modifier.height(22.dp))
+        }
+
+        item {
+            SectionHeader(icon = Icons.Default.BlurOn, title = "歌词")
+            SettingRow(
+                title = "景深效果",
+                subtitle = "为未播放歌词添加景深效果"
+            ) {
+                Switch(
+                    checked = appearance.lyricDepth,
+                    onCheckedChange = onLyricDepthChange
+                )
+            }
+            Spacer(Modifier.height(22.dp))
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 播放设置
+
+/** 一排胶囊选项，用于「播放页样式」「默认音质」这类单选。 */
+@Composable
+private fun ChoiceRow(
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (value, label) ->
+            val active = value == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (active) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    )
+                    .clickableNoRipple { onSelect(value) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    color = if (active) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
