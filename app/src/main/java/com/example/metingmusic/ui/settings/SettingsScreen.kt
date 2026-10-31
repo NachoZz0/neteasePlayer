@@ -137,6 +137,8 @@ fun SettingsScreen(
     onFadeInChange: (Int) -> Unit,
     onFadeOutChange: (Int) -> Unit,
     onSkipOnErrorChange: (Boolean) -> Unit,
+    /** 播放页盖在上面时为 true：此时返回键应该归播放页，不能先退二级页。 */
+    playerOpen: Boolean = false,
     onBackgroundBlurChange: (Float) -> Unit,
     onBackgroundAlphaChange: (Float) -> Unit,
     updateState: UpdateUiState,
@@ -153,8 +155,9 @@ fun SettingsScreen(
 
     var page by remember { mutableStateOf(SettingsPage.Main) }
 
-    // 手势返回：在二级页时先退回一级，而不是直接退出应用
-    BackHandler(enabled = page != SettingsPage.Main) {
+    // 手势返回：在二级页时先退回一级，而不是直接退出应用。
+    // 播放页开着时让出返回键 —— 否则按返回会先关掉设置二级页，播放页纹丝不动。
+    BackHandler(enabled = page != SettingsPage.Main && !playerOpen) {
         page = SettingsPage.Main
     }
 

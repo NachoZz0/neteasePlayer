@@ -155,6 +155,8 @@ import com.example.metingmusic.ui.theme.ThemeRevealOverlay
 import com.example.metingmusic.ui.theme.animationsEnabled
 import com.example.metingmusic.ui.theme.captureWindow
 import com.example.metingmusic.data.local.ThemeMode
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 class MainActivity : ComponentActivity() {
 
@@ -311,6 +313,18 @@ private fun MusicApp(
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showPlayer by remember { mutableStateOf(false) }
+
+    // 打开播放页时先收掉输入法并清焦点。
+    // 否则从歌单搜索框直接进播放页，键盘还占着下半屏，播放页会按「被键盘压缩」的
+    // 尺寸绘制，出现布局错乱（控制区被顶上去、歌词区被截断）。
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(showPlayer) {
+        if (showPlayer) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+    }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
@@ -642,6 +656,7 @@ private fun MusicApp(
                     3 -> SettingsScreen(
                         appearance = appearance,
                         extractedAccent = extractedAccent,
+                        playerOpen = showPlayer,
                         onThemeModeChange = onThemeSwitch,
                         onPickBackground = onPickBackground,
                         onClearBackground = {
