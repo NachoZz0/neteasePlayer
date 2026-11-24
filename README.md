@@ -4,7 +4,7 @@
 
 支持搜索播放、导入网易云歌单、全屏歌词、后台播放等完整能力。
 
-当前版本 1.1.0，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 1.4.1，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -15,15 +15,21 @@
 | 歌曲搜索 | 输入关键词实时搜索（400ms 防抖），支持分页 |
 | **歌单导入** | 输入网易云歌单号或粘贴分享链接，一键拉取整个歌单 |
 | 歌单收藏 | 搜索结果可「添加到歌单」，自建歌单本地持久化 |
+| **歌单内搜索** | 顶栏放大镜展开，按歌名 / 歌手过滤，保留原始队列位置 |
+| 封面直放 | 点歌单封面直接开播，随机起播 |
 | 播放控制 | 播放 / 暂停、上一首 / 下一首、进度条拖拽跳转 |
 | **全屏歌词** | 歌词为主视觉，当前行放大高亮、自动滚动、点击歌词行跳转 |
-| **底部导航** | 搜索 / 歌单双页面，底部导航栏 + 迷你播放条 |
+| 歌词景深 | 非当前行按距离渐隐失焦，手滑时自动关闭，可关 |
+| 底部导航 | 搜索 / 歌单 / 下载 / 设置 四页面，悬浮或贴底两种样式 |
 | 播放队列 | 底部弹出式队列面板，自动定位当前播放项 |
 | 音质选择 | 128K / 192K / 320K / FLAC 四档音质 |
-| 循环模式 | 顺序播放 → 列表循环 → 单曲循环 |
+| 循环模式 | 顺序播放 → 列表循环 → 单曲循环 → 随机 |
+| 淡入淡出 | 播放 / 暂停 / 切歌时音量平滑过渡，时长可调 |
 | LRC 歌词 | 自动解析时间轴，剔除「作词/作曲」等制作人员行 |
 | 后台播放 | 前台服务 + MediaSession，切后台 / 锁屏继续播放 |
 | 通知栏控制 | Media3 自动生成系统媒体通知与锁屏控制卡片 |
+| **主题切换** | 深浅色切换带圆形揭示动画，可从任意点击位置扩散 |
+| 外观设置 | 背景图、自动取色、底栏模糊强度、悬浮/贴底样式 |
 
 > **音源说明**：QQ 音乐（`server=tencent`）经实测绝大多数歌曲解析失败，已下线，目前仅保留网易云音乐。
 
@@ -32,15 +38,15 @@
 ## 页面结构
 
 ```
-┌─────────────────────────┐
-│   内容区                │
-│  （搜索 / 歌单导入）      │
-├─────────────────────────┤
-│  迷你播放条（有歌时）      │  ← 点击左侧展开全屏歌词
-├─────────────────────────┤
-│  底部导航栏              │
-│   [搜索]      [歌单]     │
-└─────────────────────────┘
+┌────────────────────────────┐
+│  内容区                     │
+│  搜索 / 歌单 / 下载 / 设置   │
+├────────────────────────────┤
+│  迷你播放条（有歌时）         │  ← 点击左侧展开全屏歌词
+├────────────────────────────┤
+│  底部导航栏                 │
+│  [搜索] [歌单] [下载] [设置] │
+└────────────────────────────┘
 ```
 
 全屏歌词页与队列面板以覆盖层形式从底部滑入。
@@ -52,38 +58,65 @@
 ```
 MetingMusicPlayer/
 ├── app/src/main/java/com/example/metingmusic/
-│   ├── MainActivity.kt                 # 入口：底部导航 + 迷你播放条 + 全屏歌词 + 队列
+│   ├── MainActivity.kt                 # 入口：底部导航 + 迷你播放条 + 全屏播放页 + 队列
 │   ├── data/
-│   │   ├── local/
-│   │   │   └── PlaylistStore.kt        # 自建歌单持久化（SharedPreferences + JSON）
+│   │   ├── local/                      # 本地持久化（SharedPreferences + JSON）
+│   │   │   ├── AppearanceStore.kt      #   外观与播放设置
+│   │   │   ├── DownloadManager.kt      #   下载任务与文件管理
+│   │   │   ├── ImportedPlaylistStore.kt#   导入歌单
+│   │   │   ├── PlaybackSessionStore.kt #   上次播放的歌曲与进度
+│   │   │   ├── SleepTimerStore.kt      #   定时关闭
+│   │   │   └── DisclaimerStore.kt      #   免责声明同意状态
 │   │   ├── model/
-│   │   │   ├── Song.kt                 # 歌曲模型，含 id 解析与音源标记
-│   │   │   ├── Playlist.kt             # 歌单模型
-│   │   │   ├── PlaylistIdParser.kt     # 从歌单号/分享链接提取 ID
-│   │   │   └── LrcParser.kt            # LRC 歌词解析器 + 时长格式化
+│   │   │   ├── Song.kt                 #   歌曲模型，含 id 解析与音源标记
+│   │   │   ├── DownloadedSong.kt       #   已下载歌曲
+│   │   │   ├── LrcParser.kt            #   LRC 解析 + 时长格式化
+│   │   │   ├── PlaylistIdParser.kt     #   歌单号 / 分享链接提取
+│   │   │   ├── ShareLinkParser.kt      #   歌曲分享链接提取
+│   │   │   └── NoticeTextParser.kt     #   公告文本解析
 │   │   ├── remote/
-│   │   │   └── MetingApi.kt            # Meting API 客户端（OkHttp）
+│   │   │   ├── MetingApi.kt            #   Meting API 客户端（OkHttp）
+│   │   │   ├── NoticeApi.kt            #   公告接口
+│   │   │   ├── UpdateApi.kt            #   版本检查
+│   │   │   └── ApkInstaller.kt         #   APK 下载与安装
 │   │   └── repository/
 │   │       └── MusicRepository.kt      # 编排多步请求，产出「可播放歌曲」
 │   ├── player/
 │   │   ├── PlaybackService.kt          # 前台播放服务 + MediaSession
-│   │   └── PlayerController.kt         # 播放状态中枢（StateFlow 驱动 UI）
+│   │   └── PlayerController.kt         # 播放状态中枢（StateFlow 驱动 UI）+ 淡入淡出
 │   └── ui/
-│       ├── search/                     # 搜索页 + ViewModel（含歌单导入状态）
+│       ├── search/                     # 搜索页 + ViewModel
 │       ├── playlist/
-│       │   ├── PlaylistImportScreen.kt # 网易云歌单导入页
-│       │   ├── PlaylistScreen.kt       # 自建歌单列表 + 详情
-│       │   └── AddToPlaylistDialog.kt  # 「添加到歌单」多选弹窗
+│       │   ├── PlaylistImportScreen.kt #   歌单列表 + 详情（含歌单内搜索、长按多选）
+│       │   ├── AddToPlaylistDialog.kt  #   「添加到歌单」多选弹窗
+│       │   ├── PlaylistMenuSheet.kt    #   歌单二级菜单
+│       │   └── SharePlaylistDialog.kt  #   分享歌单
 │       ├── player/
-│       │   ├── PlayerScreen.kt         # 全屏歌词页
-│       │   └── QueueBottomSheet.kt     # 底部队列面板
+│       │   ├── PlayerScreen.kt         #   全屏播放页（歌词 + 控制区）
+│       │   ├── QueueBottomSheet.kt     #   播放队列
+│       │   ├── PlayerMenuSheet.kt      #   播放页二级菜单
+│       │   └── SleepTimerDialog.kt     #   定时关闭
+│       ├── download/                   # 下载页 + 分组逻辑
+│       ├── settings/                   # 设置页（主题 / 背景 / 播放）+ 更新弹窗
+│       ├── common/                     # Toast、公告、免责声明、播放模式图标
 │       └── theme/
-│           ├── Theme.kt                # Material 3 主题
-│           └── Modifiers.kt            # clickableNoRipple 等共享修饰符
-├── app/src/test/                       # 22 个单元测试
-│   ├── LrcParserTest.kt                # 歌词解析（8）
-│   ├── PlaylistIdParserTest.kt         # 歌单号提取（10）
-│   └── PlaylistTest.kt                 # 歌单逻辑（4）
+│           ├── Theme.kt                #   Material 3 主题
+│           ├── ThemeReveal.kt          #   深浅色圆形揭示切换
+│           ├── AppBackground.kt        #   背景图 + 取色蒙版
+│           ├── FrostedContent.kt       #   底栏毛玻璃（图层录制 + 模糊）
+│           ├── FrostedGlass.kt         #   玻璃面板绘制
+│           ├── GlassCapability.kt      #   模糊能力检测
+│           ├── BackgroundImage.kt      #   背景图导入与存储
+│           └── Modifiers.kt            #   clickableNoRipple 等共享修饰符
+├── app/src/test/                       # 62 个单元测试
+│   ├── LrcParserTest.kt                #   歌词解析（8）
+│   ├── PlaylistIdParserTest.kt         #   歌单号提取（10）
+│   ├── ShareLinkParserTest.kt          #   分享链接解析（8）
+│   ├── NoticeTextParserTest.kt         #   公告解析（8）
+│   ├── UpdateCheckTest.kt              #   版本比较（9）
+│   ├── DownloadGroupingTest.kt         #   下载分组（9）
+│   ├── RefreshMergeTest.kt             #   刷新合并（6）
+│   └── SavedPlaylistMigrationTest.kt   #   歌单迁移（4）
 └── gradle/libs.versions.toml           # 依赖版本集中管理
 ```
 
@@ -183,7 +216,7 @@ cd MetingMusicPlayer
 # 开发调试包
 ./gradlew assembleDebug
 
-# 运行单元测试（30 个）
+# 运行单元测试（62 个）
 ./gradlew testDebugUnitTest
 
 # 正式发布包（已配好签名，见 RELEASE.md）
@@ -247,12 +280,13 @@ Compose UI  ──事件──▶  PlayerController / ViewModel
 4. **音质参数会静默降级**：请求 FLAC 但音源无版权时，接口可能返回较低音质的地址，
    无法通过响应判断，只能靠听觉区分。
 
-5. **导入的歌单不持久化**：导入的网易云歌单只存在内存中，App 重启后需重新导入
-   （这是有意设计：保证歌单内容与线上一致）。
+5. **导入歌单需手动刷新**：导入的网易云歌单会持久化，但内容不会自动同步；
+   歌单在网易云侧有变动时，需要在详情页点「刷新」重新拉取。
 
-6. **未实现随机播放**：UI 上无入口，完整实现需要在 `PlayerController.next()` 里加随机索引逻辑。
+6. **随机播放只在播放模式里**：四种模式（顺序 / 列表循环 / 单曲循环 / 随机）循环切换，
+   没有单独的「随机播放」按钮。
 
-7. **无本地音频缓存**：每次播放都走网络，重复听同一首歌会重复请求。
+7. **未下载的歌仍走网络**：已下载的歌曲播本地文件，未下载的每次播放都会重新请求音频地址。
 
 ---
 
